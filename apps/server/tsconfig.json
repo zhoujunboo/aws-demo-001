@@ -1,0 +1,13 @@
+{
+  "extends": "@aws-demo-001/config/tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "strictNullChecks": true
+  }
+}

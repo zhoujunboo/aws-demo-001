@@ -1,0 +1,14 @@
+{
+  "extends": "@aws-demo-001/config/tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": [],
+    "paths": {
+      "@aws-demo-001/ui/*": ["./src/*"]
+    },
+    "strictNullChecks": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"]
+}

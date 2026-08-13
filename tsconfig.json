@@ -1,0 +1,6 @@
+{
+  "extends": "@aws-demo-001/config/tsconfig.base.json",
+  "compilerOptions": {
+    "strictNullChecks": true
+  }
+}

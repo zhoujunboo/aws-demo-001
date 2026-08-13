@@ -1,0 +1,36 @@
+{
+  "name": "aws-demo-001",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev -F web",
+    "dev:server": "turbo run dev -F server",
+    "db:push": "turbo run db:push -F @aws-demo-001/db",
+    "db:studio": "turbo run db:studio -F @aws-demo-001/db",
+    "db:generate": "turbo run db:generate -F @aws-demo-001/db",
+    "db:migrate": "turbo run db:migrate -F @aws-demo-001/db",
+    "check": "ultracite check",
+    "fix": "ultracite fix"
+  },
+  "dependencies": {
+    "@aws-demo-001/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@aws-demo-001/config": "workspace:*",
+    "@biomejs/biome": "2.5.3",
+    "@types/node": "catalog:",
+    "turbo": "^2.10.7",
+    "typescript": "catalog:",
+    "ultracite": "7.9.4"
+  },
+  "packageManager": "pnpm@10.23.0"
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@aws-demo-001/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@aws-demo-001/db": "workspace:*",
+    "@aws-demo-001/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@aws-demo-001/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
