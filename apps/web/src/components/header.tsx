@@ -1,32 +1,13 @@
-import { Link } from "@tanstack/react-router";
-
 import { ModeToggle } from "./mode-toggle";
-import UserMenu from "./user-menu";
 
 export default function Header() {
-  const links = [
-    { to: "/", label: "Home" },
-    { to: "/dashboard", label: "Dashboard" },
-  ] as const;
-
-  return (
-    <div>
-      <div className="flex flex-row items-center justify-between px-2 py-1">
-        <nav className="flex gap-4 text-lg">
-          {links.map(({ to, label }) => {
-            return (
-              <Link key={to} to={to}>
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="flex items-center gap-2">
-          <ModeToggle />
-          <UserMenu />
-        </div>
-      </div>
-      <hr />
-    </div>
-  );
+	return (
+		<header className="flex h-12 items-center justify-between border-b px-4 md:px-6">
+			<div className="flex items-center gap-2 font-semibold text-sm">
+				<span className="size-2 bg-emerald-500" />
+				AWS Demo 001
+			</div>
+			<ModeToggle />
+		</header>
+	);
 }

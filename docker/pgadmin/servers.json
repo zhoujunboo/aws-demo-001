@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "aws-demo-001 local",
+      "Group": "Local development",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "aws_demo",
+      "Username": "postgres",
+      "SSLMode": "prefer"
+    }
+  }
+}
