@@ -29,8 +29,35 @@ app.use(
     createContext: (_opts, context) => {
       return createContext({ context });
     },
+    onError: ({ error, path, type, req }) => {
+      console.error(
+        `[tRPC Error] path: "${path}", type: "${type}", url: "${req.url}":`,
+        {
+          message: error.message,
+          code: error.code,
+          cause: error.cause,
+          stack: error.stack,
+        },
+      );
+      if (error.cause) {
+        console.error("[tRPC Error Cause]:", error.cause);
+      }
+    },
   }),
 );
+
+app.onError((err, c) => {
+  console.error(`[Hono Server Error] ${c.req.method} ${c.req.url}:`, {
+    message: err.message,
+    name: err.name,
+    cause: err.cause,
+    stack: err.stack,
+  });
+  if (err.cause) {
+    console.error("[Hono Server Error Cause]:", err.cause);
+  }
+  return c.text(`Internal Server Error: ${err.message}`, 500);
+});
 
 app.get("/", (c) => {
   return c.text("OK");
