@@ -198,7 +198,7 @@ const main = async () => {
     format: "esm",
     outDir: "./dist/lambda",
     clean: true,
-    noExternal: [/@aws-demo-001\/.*/],
+    noExternal: [/.*/],
   });
 
   // Write minimal package.json for ESM
