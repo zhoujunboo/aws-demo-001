@@ -4,10 +4,11 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "tsdown",
+    "build:lambda": "tsx scripts/build-lambda.ts",
     "check-types": "tsc -b",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.mjs"
+    "dev": "tsx watch src/serve.ts",
+    "start": "node dist/serve.mjs"
   },
   "dependencies": {
     "@aws-demo-001/api": "workspace:*",
