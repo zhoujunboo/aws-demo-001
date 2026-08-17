@@ -1,0 +1,189 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: GitHub Actions OIDC trust and deployment roles for github-profile-dev.
+
+Parameters:
+  ApplicationStackName:
+    Type: String
+    Default: github-profile-dev
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9-]*$"
+  GitHubBranch:
+    Type: String
+    Default: master
+    AllowedPattern: "^[a-zA-Z0-9._/-]+$"
+  GitHubOwner:
+    Type: String
+    Default: zhoujunboo
+    AllowedPattern: "^[a-zA-Z0-9-]+$"
+  GitHubRepository:
+    Type: String
+    Default: aws-demo-001
+    AllowedPattern: "^[a-zA-Z0-9._-]+$"
+  SamArtifactBucketName:
+    Type: String
+    Default: aws-sam-cli-managed-default-samclisourcebucket-tftx0efd35e6
+    AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: !Ref ApplicationStackName
+      Url: https://token.actions.githubusercontent.com
+
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Description: Executes CloudFormation updates for the github-profile-dev application stack.
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: ManageBoundedApplicationIam
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CreateBoundedApplicationRoles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePermissionsBoundary
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackName}-*"
+                Condition:
+                  StringEquals:
+                    iam:PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+              - Sid: ManageApplicationRoles
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:DeleteRole
+                  - iam:DetachRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackName}-*"
+              - Sid: PassApplicationRoles
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackName}-*"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService:
+                      - ec2.amazonaws.com
+                      - lambda.amazonaws.com
+              - Sid: ManageApplicationInstanceProfiles
+                Effect: Allow
+                Action:
+                  - iam:AddRoleToInstanceProfile
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:GetInstanceProfile
+                  - iam:RemoveRoleFromInstanceProfile
+                  - iam:TagInstanceProfile
+                  - iam:UntagInstanceProfile
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${ApplicationStackName}-*"
+      RoleName: !Sub "${ApplicationStackName}-cloudformation-execution"
+      Tags:
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: !Ref ApplicationStackName
+
+  GitHubActionsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}/${GitHubRepository}:ref:refs/heads/${GitHubBranch}"
+      Description: Assumed by the master branch to deploy github-profile-dev with short-lived credentials.
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: DeployApplicationStack
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ManageTargetStack
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:ListStackResources
+                  - cloudformation:TagResource
+                  - cloudformation:UntagResource
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ApplicationStackName}/*"
+              - Sid: ReadCloudFormationMetadata
+                Effect: Allow
+                Action:
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStacks
+                Resource: "*"
+              - Sid: ReadArtifactBucketMetadata
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${SamArtifactBucketName}"
+              - Sid: ManageStackArtifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${SamArtifactBucketName}/${ApplicationStackName}/*"
+              - Sid: PassCloudFormationExecutionRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationExecutionRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Sid: InvokeMigrationFunction
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackName}-migration"
+      RoleName: !Sub "${ApplicationStackName}-github-actions-deploy"
+      Tags:
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: !Ref ApplicationStackName
+
+Outputs:
+  CloudFormationExecutionRoleArn:
+    Description: Service role passed to CloudFormation by GitHub Actions.
+    Value: !GetAtt CloudFormationExecutionRole.Arn
+  GitHubActionsDeployRoleArn:
+    Description: OIDC role assumed by the trusted GitHub branch.
+    Value: !GetAtt GitHubActionsDeployRole.Arn
+  GitHubOidcProviderArn:
+    Description: Account-level GitHub Actions OIDC provider ARN.
+    Value: !Ref GitHubOidcProvider

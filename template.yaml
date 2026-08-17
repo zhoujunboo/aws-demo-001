@@ -68,6 +68,7 @@ Globals:
     Architectures:
       - x86_64
     MemorySize: 512
+    PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
     Timeout: 30
     Tracing: Active
     Tags:
@@ -246,6 +247,7 @@ Resources:
               - sts:AssumeRole
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
       Tags:
         - Key: Project
           Value: !Ref ProjectName
