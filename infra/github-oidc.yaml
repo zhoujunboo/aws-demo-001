@@ -14,10 +14,18 @@ Parameters:
     Type: String
     Default: zhoujunboo
     AllowedPattern: "^[a-zA-Z0-9-]+$"
+  GitHubOwnerId:
+    Type: String
+    Default: "45096495"
+    AllowedPattern: "^[0-9]+$"
   GitHubRepository:
     Type: String
     Default: aws-demo-001
     AllowedPattern: "^[a-zA-Z0-9._-]+$"
+  GitHubRepositoryId:
+    Type: String
+    Default: "1332961829"
+    AllowedPattern: "^[0-9]+$"
   SamArtifactBucketName:
     Type: String
     Default: aws-sam-cli-managed-default-samclisourcebucket-tftx0efd35e6
@@ -120,7 +128,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}/${GitHubRepository}:ref:refs/heads/${GitHubBranch}"
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepository}@${GitHubRepositoryId}:ref:refs/heads/${GitHubBranch}"
       Description: Assumed by the master branch to deploy github-profile-dev with short-lived credentials.
       MaxSessionDuration: 3600
       Policies:

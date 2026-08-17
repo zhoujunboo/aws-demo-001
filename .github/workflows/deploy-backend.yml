@@ -87,25 +87,6 @@ jobs:
       - name: Build SAM application
         run: sam build --template-file template.yaml
 
-      - name: Inspect OIDC claims
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const token = await core.getIDToken("sts.amazonaws.com");
-            const payload = JSON.parse(
-              Buffer.from(token.split(".")[1], "base64url").toString("utf8")
-            );
-
-            core.info(JSON.stringify({
-              aud: payload.aud,
-              eventName: payload.event_name,
-              iss: payload.iss,
-              jobWorkflowRef: payload.job_workflow_ref,
-              ref: payload.ref,
-              repository: payload.repository,
-              sub: payload.sub,
-            }));
-
       - name: Assume AWS deployment role
         uses: aws-actions/configure-aws-credentials@v5
         with:
