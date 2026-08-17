@@ -441,7 +441,6 @@ Resources:
       Handler: migration.handler
       Policies:
         - AWSLambdaVPCAccessExecutionRole
-      ReservedConcurrentExecutions: 1
       Timeout: 300
       VpcConfig:
         SecurityGroupIds:
@@ -449,22 +448,6 @@ Resources:
         SubnetIds:
           - !Ref PrivateSubnetA
           - !Ref PrivateSubnetB
-
-  ApiLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${EnvironmentName}-api"
-      RetentionInDays: 14
-
-  MigrationLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${EnvironmentName}-migration"
-      RetentionInDays: 14
 
 Outputs:
   ApiUrl:
