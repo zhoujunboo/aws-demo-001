@@ -10,6 +10,10 @@ const __dirname = path.dirname(__filename);
 const serverDir = path.resolve(__dirname, "..");
 const distDir = path.join(serverDir, "dist");
 const lambdaDistDir = path.join(distDir, "lambda");
+const migrationsSourceDir = path.resolve(
+  serverDir,
+  "../../packages/db/src/migrations",
+);
 const zipPath = path.join(distDir, "lambda.zip");
 
 // ── ZIP helpers (built with Node.js zlib, zero external deps) ───────────
@@ -194,14 +198,18 @@ const walkDir = async (
 const main = async () => {
   console.log("🔨 Building Lambda bundle with tsdown...");
   await build({
-    entry: ["./src/lambda.ts"],
+    entry: ["./src/lambda.ts", "./src/migration.ts"],
     format: "esm",
     outDir: "./dist/lambda",
     clean: true,
     noExternal: [/.*/],
   });
 
-  // Write minimal package.json for ESM
+  await fs.cp(migrationsSourceDir, path.join(lambdaDistDir, "migrations"), {
+    recursive: true,
+  });
+
+  // Write minimal package.json for ESM and SAM's npm builder.
   await fs.mkdir(lambdaDistDir, { recursive: true });
   await fs.writeFile(
     path.join(lambdaDistDir, "package.json"),

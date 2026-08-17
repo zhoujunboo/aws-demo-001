@@ -424,12 +424,46 @@ Resources:
           - !Ref PrivateSubnetA
           - !Ref PrivateSubnetB
 
+  MigrationFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: DatabaseInstance
+    Properties:
+      CodeUri: apps/server/dist/lambda/
+      Description: Applies pending Drizzle migrations to Aurora PostgreSQL.
+      Environment:
+        Variables:
+          DATABASE_URL: !Sub
+            - "postgresql://${DatabaseUsername}:{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:password}}@${DatabaseHost}:${DatabasePort}/${DatabaseName}?sslmode=require"
+            - DatabaseHost: !GetAtt DatabaseCluster.Endpoint.Address
+              DatabasePort: !GetAtt DatabaseCluster.Endpoint.Port
+              DatabaseSecretArn: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+      FunctionName: !Sub "${ProjectName}-${EnvironmentName}-migration"
+      Handler: migration.handler
+      Policies:
+        - AWSLambdaVPCAccessExecutionRole
+      ReservedConcurrentExecutions: 1
+      Timeout: 300
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub "/aws/lambda/${ProjectName}-${EnvironmentName}-api"
+      RetentionInDays: 14
+
+  MigrationLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${EnvironmentName}-migration"
       RetentionInDays: 14
 
 Outputs:
@@ -446,6 +480,8 @@ Outputs:
     Value: !GetAtt BastionHost.PublicIp
   DatabaseSecretArn:
     Value: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+  MigrationFunctionName:
+    Value: !Ref MigrationFunction
   PrivateSubnetAId:
     Value: !Ref PrivateSubnetA
   PrivateSubnetBId:
