@@ -1,0 +1,454 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: GitHub profile Hono API, VPC, and Aurora PostgreSQL.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: github-profile
+    AllowedPattern: "^[a-z][a-z0-9-]*$"
+    Description: Prefix used for resource names.
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+  PrivateSubnetACidr:
+    Type: String
+    Default: 10.0.11.0/24
+  PrivateSubnetBCidr:
+    Type: String
+    Default: 10.0.12.0/24
+  BastionAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 x86_64 AMI.
+  BastionInstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+  BastionAllowedSshCidr:
+    Type: String
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(3[0-2]|[12]?[0-9])$'
+    Description: Current public IP in CIDR form, for example 203.0.113.10/32.
+  DatabaseName:
+    Type: String
+    Default: githubprofile
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9]*$"
+  DatabaseUsername:
+    Type: String
+    Default: postgres
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+  AuroraMinCapacity:
+    Type: Number
+    Default: 0.5
+  AuroraMaxCapacity:
+    Type: Number
+    Default: 1
+  CorsOrigin:
+    Type: String
+    Default: https://frosty-meadow-9529.junbozhou88.workers.dev
+    Description: Exact frontend origin allowed by Hono CORS.
+  BetterAuthUrl:
+    Type: String
+    Default: https://21y24vyexa.execute-api.us-east-1.amazonaws.com
+    Description: Backend public URL. Update this to ApiUrl after the first deployment.
+
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Architectures:
+      - x86_64
+    MemorySize: 512
+    Timeout: 30
+    Tracing: Active
+    Tags:
+      Project: !Ref ProjectName
+      Environment: !Ref EnvironmentName
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-igw"
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-public-a"
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PrivateSubnetACidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-private-a"
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Ref PrivateSubnetBCidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-private-b"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-public-rt"
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  NatElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-nat-eip"
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatElasticIp.AllocationId
+      ConnectivityType: public
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-nat-a"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-private-rt"
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateRouteTableAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateRouteTableAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the Hono Lambda function.
+      GroupName: !Sub "${ProjectName}-${EnvironmentName}-lambda-sg"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-lambda-sg"
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the database bastion host.
+      GroupName: !Sub "${ProjectName}-${EnvironmentName}-bastion-sg"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - CidrIp: !Ref BastionAllowedSshCidr
+          Description: SSH from the current administrator IP
+          FromPort: 22
+          IpProtocol: tcp
+          ToPort: 22
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-bastion-sg"
+
+  BastionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref BastionRole
+
+  BastionHost:
+    Type: AWS::EC2::Instance
+    DependsOn: PublicDefaultRoute
+    Properties:
+      IamInstanceProfile: !Ref BastionInstanceProfile
+      ImageId: !Ref BastionAmiId
+      InstanceType: !Ref BastionInstanceType
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpPutResponseHopLimit: 2
+        HttpTokens: required
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref BastionSecurityGroup
+          SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-bastion"
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL only from the Lambda security group.
+      GroupName: !Sub "${ProjectName}-${EnvironmentName}-database-sg"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - Description: PostgreSQL from Lambda
+          FromPort: 5432
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          ToPort: 5432
+        - Description: PostgreSQL from bastion
+          FromPort: 5432
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+          ToPort: 5432
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-database-sg"
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for Aurora PostgreSQL.
+      DBSubnetGroupName: !Sub "${ProjectName}-${EnvironmentName}-db-subnets"
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-db-subnets"
+
+  DatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      DatabaseName: !Ref DatabaseName
+      DBClusterIdentifier: !Sub "${ProjectName}-${EnvironmentName}-cluster"
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      DeletionProtection: false
+      Engine: aurora-postgresql
+      EngineMode: provisioned
+      EngineVersion: "17.7"
+      ManageMasterUserPassword: true
+      MasterUsername: !Ref DatabaseUsername
+      Port: 5432
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref AuroraMinCapacity
+        MaxCapacity: !Ref AuroraMaxCapacity
+      StorageEncrypted: true
+      VpcSecurityGroupIds:
+        - !Ref DatabaseSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-cluster"
+
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AutoMinorVersionUpgrade: true
+      DBClusterIdentifier: !Ref DatabaseCluster
+      DBInstanceClass: db.serverless
+      DBInstanceIdentifier: !Sub "${ProjectName}-${EnvironmentName}-cluster-instance-1"
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-cluster-instance-1"
+
+  BetterAuthSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Better Auth signing secret for the Hono API.
+      GenerateSecretString:
+        ExcludePunctuation: true
+        GenerateStringKey: secret
+        PasswordLength: 48
+        SecretStringTemplate: '{"purpose":"better-auth"}'
+      Name: !Sub "${ProjectName}/${EnvironmentName}/better-auth"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Description: Public HTTP API for the Hono Lambda application.
+      FailOnWarnings: true
+      Name: !Sub "${ProjectName}-${EnvironmentName}-api"
+      StageName: $default
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref EnvironmentName
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: apps/server/dist/lambda/
+      Description: Hono API connected to Aurora PostgreSQL.
+      Environment:
+        Variables:
+          BETTER_AUTH_SECRET: !Sub "{{resolve:secretsmanager:${BetterAuthSecret}:SecretString:secret}}"
+          BETTER_AUTH_URL: !Ref BetterAuthUrl
+          CORS_ORIGIN: !Ref CorsOrigin
+          DATABASE_URL: !Sub
+            - "postgresql://${DatabaseUsername}:{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:password}}@${DatabaseHost}:${DatabasePort}/${DatabaseName}?sslmode=require"
+            - DatabaseHost: !GetAtt DatabaseCluster.Endpoint.Address
+              DatabasePort: !GetAtt DatabaseCluster.Endpoint.Port
+              DatabaseSecretArn: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+          NODE_ENV: production
+      Events:
+        ProxyRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: ANY
+            Path: /{proxy+}
+        RootRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: ANY
+            Path: /
+      FunctionName: !Sub "${ProjectName}-${EnvironmentName}-api"
+      Handler: lambda.handler
+      Policies:
+        - AWSLambdaVPCAccessExecutionRole
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${EnvironmentName}-api"
+      RetentionInDays: 14
+
+Outputs:
+  ApiUrl:
+    Description: Use this value as BetterAuthUrl after the first deployment.
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  ApiFunctionName:
+    Value: !Ref ApiFunction
+  AuroraEndpoint:
+    Value: !GetAtt DatabaseCluster.Endpoint.Address
+  BastionInstanceId:
+    Value: !Ref BastionHost
+  BastionPublicIp:
+    Value: !GetAtt BastionHost.PublicIp
+  DatabaseSecretArn:
+    Value: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+  PrivateSubnetAId:
+    Value: !Ref PrivateSubnetA
+  PrivateSubnetBId:
+    Value: !Ref PrivateSubnetB
+  VpcId:
+    Value: !Ref Vpc

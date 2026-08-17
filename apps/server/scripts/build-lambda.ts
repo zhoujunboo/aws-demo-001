@@ -205,7 +205,12 @@ const main = async () => {
   await fs.mkdir(lambdaDistDir, { recursive: true });
   await fs.writeFile(
     path.join(lambdaDistDir, "package.json"),
-    JSON.stringify({ type: "module" }),
+    JSON.stringify({
+      name: "github-profile-lambda",
+      private: true,
+      type: "module",
+      version: "1.0.0",
+    }),
     "utf-8",
   );
 
