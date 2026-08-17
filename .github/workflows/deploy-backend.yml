@@ -1,0 +1,134 @@
+name: Deploy backend
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/deploy-backend.yml"
+      - "apps/server/**"
+      - "packages/api/**"
+      - "packages/auth/**"
+      - "packages/config/**"
+      - "packages/db/**"
+      - "packages/env/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "template.yaml"
+      - "turbo.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AURORA_MAX_CAPACITY: "1"
+  AURORA_MIN_CAPACITY: "0.5"
+  BASTION_ALLOWED_SSH_CIDR: 123.119.78.59/32
+  BASTION_AMI_ID: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  BASTION_INSTANCE_TYPE: t3.micro
+  BETTER_AUTH_URL: https://vrpywgys31.execute-api.us-east-1.amazonaws.com
+  CLOUDFORMATION_EXECUTION_ROLE_ARN: arn:aws:iam::492646066759:role/github-profile-dev-cloudformation-execution
+  CORS_ORIGIN: https://frosty-meadow-9529.junbozhou88.workers.dev
+  DATABASE_NAME: githubprofile
+  DATABASE_USERNAME: postgres
+  ENVIRONMENT_NAME: dev
+  GITHUB_ACTIONS_DEPLOY_ROLE_ARN: arn:aws:iam::492646066759:role/github-profile-dev-github-actions-deploy
+  MIGRATION_FUNCTION_NAME: github-profile-dev-migration
+  PRIVATE_SUBNET_A_CIDR: 10.0.11.0/24
+  PRIVATE_SUBNET_B_CIDR: 10.0.12.0/24
+  PROJECT_NAME: github-profile
+  PUBLIC_SUBNET_CIDR: 10.0.1.0/24
+  SAM_ARTIFACT_BUCKET: aws-sam-cli-managed-default-samclisourcebucket-tftx0efd35e6
+  SAM_ARTIFACT_PREFIX: github-profile-dev
+  STACK_NAME: github-profile-dev
+  VPC_CIDR: 10.0.0.0/16
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    name: Build, deploy, and migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 24
+
+      - name: Set up AWS SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Lambda bundle
+        run: pnpm exec turbo run build:lambda --filter=server
+
+      - name: Validate SAM template
+        run: sam validate --lint --template-file template.yaml
+
+      - name: Build SAM application
+        run: sam build --template-file template.yaml
+
+      - name: Assume AWS deployment role
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-${{ github.run_id }}
+          role-to-assume: ${{ env.GITHUB_ACTIONS_DEPLOY_ROLE_ARN }}
+
+      - name: Deploy SAM application
+        run: |
+          sam deploy \
+            --template-file .aws-sam/build/template.yaml \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --s3-bucket "$SAM_ARTIFACT_BUCKET" \
+            --s3-prefix "$SAM_ARTIFACT_PREFIX" \
+            --capabilities CAPABILITY_IAM \
+            --role-arn "$CLOUDFORMATION_EXECUTION_ROLE_ARN" \
+            --parameter-overrides \
+              ProjectName="$PROJECT_NAME" \
+              EnvironmentName="$ENVIRONMENT_NAME" \
+              VpcCidr="$VPC_CIDR" \
+              PublicSubnetCidr="$PUBLIC_SUBNET_CIDR" \
+              PrivateSubnetACidr="$PRIVATE_SUBNET_A_CIDR" \
+              PrivateSubnetBCidr="$PRIVATE_SUBNET_B_CIDR" \
+              BastionAmiId="$BASTION_AMI_ID" \
+              BastionInstanceType="$BASTION_INSTANCE_TYPE" \
+              BastionAllowedSshCidr="$BASTION_ALLOWED_SSH_CIDR" \
+              DatabaseName="$DATABASE_NAME" \
+              DatabaseUsername="$DATABASE_USERNAME" \
+              AuroraMinCapacity="$AURORA_MIN_CAPACITY" \
+              AuroraMaxCapacity="$AURORA_MAX_CAPACITY" \
+              CorsOrigin="$CORS_ORIGIN" \
+              BetterAuthUrl="$BETTER_AUTH_URL" \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Run database migrations
+        run: |
+          aws lambda invoke \
+            --function-name "$MIGRATION_FUNCTION_NAME" \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{}' \
+            migration-response.json
+
+          node --input-type=commonjs -e "const fs = require('node:fs'); const result = JSON.parse(fs.readFileSync('migration-response.json', 'utf8')); if (result.status !== 'completed') { console.error(result); process.exit(1); } console.log('Migration completed in ' + result.durationMs + 'ms');"
