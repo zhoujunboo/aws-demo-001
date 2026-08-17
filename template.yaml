@@ -58,11 +58,6 @@ Parameters:
     Type: String
     Default: https://frosty-meadow-9529.junbozhou88.workers.dev
     Description: Exact frontend origin allowed by Hono CORS.
-  BetterAuthUrl:
-    Type: String
-    Default: https://21y24vyexa.execute-api.us-east-1.amazonaws.com
-    Description: Backend public URL. Update this to ApiUrl after the first deployment.
-
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -392,7 +387,7 @@ Resources:
       Environment:
         Variables:
           BETTER_AUTH_SECRET: !Sub "{{resolve:secretsmanager:${BetterAuthSecret}:SecretString:secret}}"
-          BETTER_AUTH_URL: !Ref BetterAuthUrl
+          BETTER_AUTH_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
           CORS_ORIGIN: !Ref CorsOrigin
           DATABASE_URL: !Sub
             - "postgresql://${DatabaseUsername}:{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:password}}@${DatabaseHost}:${DatabasePort}/${DatabaseName}?sslmode=require"
@@ -451,7 +446,7 @@ Resources:
 
 Outputs:
   ApiUrl:
-    Description: Use this value as BetterAuthUrl after the first deployment.
+    Description: Public URL for the Hono API.
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
   ApiFunctionName:
     Value: !Ref ApiFunction
