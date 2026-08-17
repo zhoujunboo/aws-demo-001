@@ -13,7 +13,8 @@ on:
       - "packages/db/**"
       - "packages/env/**"
       - "package.json"
-      - "pnpm-lock.yaml"
+      # The shared lockfile also changes for frontend-only dependencies.
+      # Backend dependency changes are already matched by the backend-owned paths above.
       - "pnpm-workspace.yaml"
       - "template.yaml"
       - "turbo.json"
