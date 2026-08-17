@@ -1,17 +1,20 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Pool } from "pg";
 
-interface RunMigrationsOptions {
-	databaseUrl: string;
+import {
+	createDatabasePool,
+	type DatabaseConnectionOptions,
+} from "./connection";
+
+interface RunMigrationsOptions extends DatabaseConnectionOptions {
 	migrationsFolder: string;
 }
 
 export const runMigrations = async ({
-	databaseUrl,
 	migrationsFolder,
+	...connectionOptions
 }: RunMigrationsOptions): Promise<void> => {
-	const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+	const pool = createDatabasePool(connectionOptions, 1);
 
 	try {
 		const database = drizzle(pool);

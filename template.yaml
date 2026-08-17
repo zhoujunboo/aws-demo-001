@@ -58,6 +58,10 @@ Parameters:
     Type: String
     Default: https://frosty-meadow-9529.junbozhou88.workers.dev
     Description: Exact frontend origin allowed by Hono CORS.
+  BetterAuthUrl:
+    Type: String
+    Default: https://21y24vyexa.execute-api.us-east-1.amazonaws.com
+    Description: Backend public URL. Update this to ApiUrl after the first deployment.
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -387,13 +391,13 @@ Resources:
       Environment:
         Variables:
           BETTER_AUTH_SECRET: !Sub "{{resolve:secretsmanager:${BetterAuthSecret}:SecretString:secret}}"
-          BETTER_AUTH_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+          BETTER_AUTH_URL: !Ref BetterAuthUrl
           CORS_ORIGIN: !Ref CorsOrigin
-          DATABASE_URL: !Sub
-            - "postgresql://${DatabaseUsername}:{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:password}}@${DatabaseHost}:${DatabasePort}/${DatabaseName}?sslmode=require"
-            - DatabaseHost: !GetAtt DatabaseCluster.Endpoint.Address
-              DatabasePort: !GetAtt DatabaseCluster.Endpoint.Port
-              DatabaseSecretArn: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+          DATABASE_HOST: !GetAtt DatabaseCluster.Endpoint.Address
+          DATABASE_NAME: !Ref DatabaseName
+          DATABASE_PASSWORD: !Sub "{{resolve:secretsmanager:${DatabaseCluster.MasterUserSecret.SecretArn}:SecretString:password}}"
+          DATABASE_PORT: !GetAtt DatabaseCluster.Endpoint.Port
+          DATABASE_USERNAME: !Ref DatabaseUsername
           NODE_ENV: production
       Events:
         ProxyRoute:
@@ -427,11 +431,11 @@ Resources:
       Description: Applies pending Drizzle migrations to Aurora PostgreSQL.
       Environment:
         Variables:
-          DATABASE_URL: !Sub
-            - "postgresql://${DatabaseUsername}:{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:password}}@${DatabaseHost}:${DatabasePort}/${DatabaseName}?sslmode=require"
-            - DatabaseHost: !GetAtt DatabaseCluster.Endpoint.Address
-              DatabasePort: !GetAtt DatabaseCluster.Endpoint.Port
-              DatabaseSecretArn: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+          DATABASE_HOST: !GetAtt DatabaseCluster.Endpoint.Address
+          DATABASE_NAME: !Ref DatabaseName
+          DATABASE_PASSWORD: !Sub "{{resolve:secretsmanager:${DatabaseCluster.MasterUserSecret.SecretArn}:SecretString:password}}"
+          DATABASE_PORT: !GetAtt DatabaseCluster.Endpoint.Port
+          DATABASE_USERNAME: !Ref DatabaseUsername
       FunctionName: !Sub "${ProjectName}-${EnvironmentName}-migration"
       Handler: migration.handler
       Policies:
@@ -446,7 +450,7 @@ Resources:
 
 Outputs:
   ApiUrl:
-    Description: Public URL for the Hono API.
+    Description: Use this value as BetterAuthUrl after the first deployment.
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
   ApiFunctionName:
     Value: !Ref ApiFunction

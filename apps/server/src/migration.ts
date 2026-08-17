@@ -13,15 +13,18 @@ interface MigrationResult {
 }
 
 export const handler = async (): Promise<MigrationResult> => {
-	const databaseUrl = process.env.DATABASE_URL;
-	if (!databaseUrl) {
-		throw new Error("DATABASE_URL is required to run database migrations");
-	}
-
 	const startedAt = Date.now();
 	console.info("[Migration] Applying pending Drizzle migrations");
 
-	await runMigrations({ databaseUrl, migrationsFolder });
+	await runMigrations({
+		database: process.env.DATABASE_NAME,
+		databaseUrl: process.env.DATABASE_URL,
+		host: process.env.DATABASE_HOST,
+		migrationsFolder,
+		password: process.env.DATABASE_PASSWORD,
+		port: process.env.DATABASE_PORT,
+		username: process.env.DATABASE_USERNAME,
+	});
 
 	const durationMs = Date.now() - startedAt;
 	console.info(`[Migration] Completed in ${durationMs}ms`);
