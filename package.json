@@ -17,6 +17,7 @@
     "db:studio": "turbo run db:studio -F @aws-demo-001/db",
     "db:generate": "turbo run db:generate -F @aws-demo-001/db",
     "db:migrate": "turbo run db:migrate -F @aws-demo-001/db",
+    "test": "turbo run test",
     "check": "ultracite check",
     "fix": "ultracite fix"
   },
