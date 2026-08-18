@@ -36,6 +36,26 @@ services:
       postgres:
         condition: service_healthy
 
+  profile-service:
+    build:
+      context: ./apps/profile-service
+    restart: unless-stopped
+    environment:
+      CORS_ORIGIN: http://localhost:3001
+      DATABASE_HOST: postgres
+      DATABASE_MAX_CONNECTIONS: "5"
+      DATABASE_NAME: aws_demo
+      DATABASE_PASSWORD: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_SSLMODE: disable
+      DATABASE_USERNAME: postgres
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
     name: aws-demo-001-postgres-data
