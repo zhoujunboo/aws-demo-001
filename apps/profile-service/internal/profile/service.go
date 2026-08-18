@@ -3,75 +3,52 @@ package profile
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 )
 
-var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$`)
+var ErrInvalidProfileID = errors.New("profile ID must be a UUID")
 
 type Service struct {
-	github     GitHubClient
 	now        func() time.Time
 	repository Repository
 }
 
-func NewService(repository Repository, github GitHubClient) *Service {
+func NewService(repository Repository) *Service {
 	return &Service{
-		github:     github,
 		now:        time.Now,
 		repository: repository,
 	}
 }
 
-func (service *Service) List(ctx context.Context) ([]Profile, error) {
-	return service.repository.List(ctx)
-}
-
-func (service *Service) Delete(ctx context.Context, id string) error {
-	if !isUUID(id) {
-		return ErrNotFound
-	}
-	return service.repository.Delete(ctx, id)
-}
-
-func (service *Service) GenerateIntroduction(ctx context.Context, username string) (Introduction, error) {
-	normalizedUsername := strings.TrimSpace(username)
-	if !usernamePattern.MatchString(normalizedUsername) {
-		return Introduction{}, fmt.Errorf("username must be a valid GitHub username")
+func (service *Service) GenerateIntroduction(ctx context.Context, profileID string) (Introduction, error) {
+	if !isUUID(profileID) {
+		return Introduction{}, ErrInvalidProfileID
 	}
 
-	githubProfile, err := service.github.GetUser(ctx, normalizedUsername)
+	storedProfile, err := service.repository.GetProfile(ctx, profileID)
 	if err != nil {
 		return Introduction{}, err
 	}
 
 	now := service.now().UTC()
-	profile := Profile{
-		AvatarURL:       githubProfile.AvatarURL,
-		Bio:             githubProfile.Bio,
-		Followers:       githubProfile.Followers,
-		Following:       githubProfile.Following,
-		GitHubCreatedAt: githubProfile.GitHubCreatedAt,
-		GitHubID:        githubProfile.GitHubID,
-		ID:              newUUID(),
-		Location:        githubProfile.Location,
-		Login:           githubProfile.Login,
-		Name:            githubProfile.Name,
-		ProfileURL:      githubProfile.ProfileURL,
-		PublicRepos:     githubProfile.PublicRepos,
-		UpdatedAt:       now,
+	introduction := Introduction{
+		Content:   buildIntroduction(storedProfile),
+		ID:        newUUID(),
+		ProfileID: storedProfile.ID,
+		UpdatedAt: now,
 	}
 
-	savedProfile, err := service.repository.Save(ctx, profile)
-	if err != nil {
-		return Introduction{}, err
+	return service.repository.SaveIntroduction(ctx, introduction)
+}
+
+func (service *Service) GetIntroduction(ctx context.Context, profileID string) (Introduction, error) {
+	if !isUUID(profileID) {
+		return Introduction{}, ErrInvalidProfileID
 	}
-	return Introduction{
-		Introduction: buildIntroduction(savedProfile),
-		Profile:      savedProfile,
-	}, nil
+	return service.repository.GetIntroduction(ctx, profileID)
 }
 
 func buildIntroduction(profile Profile) string {

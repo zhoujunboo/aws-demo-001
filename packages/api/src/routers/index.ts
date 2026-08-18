@@ -1,10 +1,15 @@
+import {
+	deleteGithubProfile,
+	listGithubProfiles,
+	saveGithubProfile,
+} from "@aws-demo-001/db/github-profiles";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { getGithubUserByUsername } from "../github";
 import { protectedProcedure, publicProcedure, router } from "../index";
 import {
-	deleteProfile,
 	generateProfileIntroduction,
-	listProfiles,
+	getProfileIntroduction,
 	ProfileServiceError,
 } from "../profile-service";
 
@@ -45,26 +50,79 @@ const callProfileService = async <Result>(
 
 export const appRouter = router({
 	githubProfiles: router({
-		delete: publicProcedure
-			.input(z.object({ id: z.uuid() }))
-			.mutation(({ input }) =>
-				callProfileService(() => deleteProfile(input.id))
-			),
-		generateFromUsername: publicProcedure
+		createFromUsername: publicProcedure
 			.input(
 				z.object({
-					username: z.string().trim().min(1, "请输入 GitHub 用户名。").max(39),
+					username: z
+						.string()
+						.trim()
+						.min(1, "请输入 GitHub 用户名。")
+						.max(39)
+						.regex(
+							/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i,
+							"请输入有效的 GitHub 用户名。"
+						),
 				})
 			)
-			.mutation(({ input }) =>
-				callProfileService(() => generateProfileIntroduction(input.username))
-			),
-		list: publicProcedure.query(() => callProfileService(listProfiles)),
+			.mutation(async ({ input }) => {
+				const profile = await getGithubUserByUsername(input.username);
+				return saveGithubProfile({
+					avatarUrl: profile.avatar_url,
+					bio: profile.bio,
+					followers: profile.followers,
+					following: profile.following,
+					githubCreatedAt: new Date(profile.created_at),
+					githubId: profile.id,
+					id: crypto.randomUUID(),
+					location: profile.location,
+					login: profile.login,
+					name: profile.name,
+					profileUrl: profile.html_url,
+					publicRepos: profile.public_repos,
+					updatedAt: new Date(),
+				});
+			}),
+		delete: publicProcedure
+			.input(z.object({ id: z.uuid() }))
+			.mutation(async ({ input }) => {
+				const deletedProfile = await deleteGithubProfile(input.id);
+				if (!deletedProfile) {
+					throw new TRPCError({
+						code: "NOT_FOUND",
+						message: "名片不存在。",
+					});
+				}
+
+				return deletedProfile;
+			}),
+		list: publicProcedure.query(listGithubProfiles),
 	}),
 	healthCheck: publicProcedure.query(() => "OK"),
 	privateData: protectedProcedure.query(({ ctx }) => ({
 		message: "This is private",
 		user: ctx.session.user,
 	})),
+	profileIntroductions: router({
+		generate: publicProcedure
+			.input(z.object({ profileId: z.uuid() }))
+			.mutation(({ input }) =>
+				callProfileService(() => generateProfileIntroduction(input.profileId))
+			),
+		get: publicProcedure
+			.input(z.object({ profileId: z.uuid() }))
+			.query(async ({ input }) => {
+				try {
+					return await getProfileIntroduction(input.profileId);
+				} catch (error) {
+					if (
+						error instanceof ProfileServiceError &&
+						error.statusCode === 404
+					) {
+						return null;
+					}
+					throw toTRPCError(error);
+				}
+			}),
+	}),
 });
 export type AppRouter = typeof appRouter;

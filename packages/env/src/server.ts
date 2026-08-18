@@ -15,6 +15,7 @@ export const env = createEnv({
 		DATABASE_PORT: z.coerce.number().int().positive().max(65_535).optional(),
 		DATABASE_URL: z.string().min(1).optional(),
 		DATABASE_USERNAME: z.string().min(1).optional(),
+		GITHUB_TOKEN: z.string().min(1).optional(),
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),

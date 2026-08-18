@@ -54,10 +54,8 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	httpClient := &http.Client{Timeout: settings.RequestTimeout}
 	repository := profile.NewPostgresRepository(pool)
-	githubClient := profile.NewHTTPGitHubClient(httpClient, settings.GitHubToken)
-	profileService := profile.NewService(repository, githubClient)
+	profileService := profile.NewService(repository)
 
 	server := &http.Server{
 		Addr:              settings.Address,

@@ -6,23 +6,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type Config struct {
-	Address        string
-	AllowedOrigin  string
-	DatabaseURL    string
-	GitHubToken    string
-	RequestTimeout time.Duration
+	Address       string
+	AllowedOrigin string
+	DatabaseURL   string
 }
 
 func Load() (Config, error) {
-	requestTimeout, err := parseDuration("REQUEST_TIMEOUT", 10*time.Second)
-	if err != nil {
-		return Config{}, err
-	}
-
 	databaseURL, err := resolveDatabaseURL()
 	if err != nil {
 		return Config{}, err
@@ -30,11 +22,9 @@ func Load() (Config, error) {
 
 	port := valueOrDefault("PORT", "8080")
 	return Config{
-		Address:        ":" + port,
-		AllowedOrigin:  valueOrDefault("CORS_ORIGIN", "http://localhost:3001"),
-		DatabaseURL:    databaseURL,
-		GitHubToken:    strings.TrimSpace(os.Getenv("GITHUB_TOKEN")),
-		RequestTimeout: requestTimeout,
+		Address:       ":" + port,
+		AllowedOrigin: valueOrDefault("CORS_ORIGIN", "http://localhost:3001"),
+		DatabaseURL:   databaseURL,
 	}, nil
 }
 
@@ -63,19 +53,6 @@ func resolveDatabaseURL() (string, error) {
 	query.Set("sslmode", sslMode)
 	connectionURL.RawQuery = query.Encode()
 	return connectionURL.String(), nil
-}
-
-func parseDuration(name string, fallback time.Duration) (time.Duration, error) {
-	rawValue := strings.TrimSpace(os.Getenv(name))
-	if rawValue == "" {
-		return fallback, nil
-	}
-
-	duration, err := time.ParseDuration(rawValue)
-	if err != nil {
-		return 0, fmt.Errorf("parse %s: %w", name, err)
-	}
-	return duration, nil
 }
 
 func valueOrDefault(name, fallback string) string {

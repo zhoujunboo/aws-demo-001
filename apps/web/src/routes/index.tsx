@@ -75,10 +75,27 @@ interface ProfileCardProps {
 }
 
 function ProfileCard({ deleteProfile, isDeleting, profile }: ProfileCardProps) {
+	const introductionQueryKey = trpc.profileIntroductions.get.queryKey({
+		profileId: profile.id,
+	});
+	const introduction = useQuery(
+		trpc.profileIntroductions.get.queryOptions({ profileId: profile.id })
+	);
+	const generateIntroduction = useMutation(
+		trpc.profileIntroductions.generate.mutationOptions({
+			onSuccess: (result) => {
+				queryClient.setQueryData(introductionQueryKey, result);
+				toast.success(`已生成 @${profile.login} 的个人简介`);
+			},
+		})
+	);
 	const handleDelete = useCallback(
 		() => deleteProfile(profile.id),
 		[deleteProfile, profile.id]
 	);
+	const handleGenerateIntroduction = useCallback(() => {
+		generateIntroduction.mutate({ profileId: profile.id });
+	}, [generateIntroduction, profile.id]);
 
 	return (
 		<Card className="flex flex-col justify-between transition-shadow hover:shadow-md">
@@ -168,6 +185,42 @@ function ProfileCard({ deleteProfile, isDeleting, profile }: ProfileCardProps) {
 						<span>{formatJoinDate(profile.githubCreatedAt)}</span>
 					</div>
 				</div>
+				{introduction.data ? (
+					<div
+						aria-live="polite"
+						className="grid gap-1.5 border-primary border-l-2 bg-muted/30 px-3 py-2.5"
+					>
+						<div className="flex items-center gap-1.5 font-medium text-xs">
+							<Sparkles className="size-3.5 text-primary" />
+							个人简介
+						</div>
+						<p className="text-muted-foreground text-sm leading-relaxed">
+							{introduction.data.content}
+						</p>
+					</div>
+				) : null}
+				{generateIntroduction.error ? (
+					<div
+						className="flex items-center gap-2 bg-destructive/10 p-2.5 text-destructive text-xs"
+						role="alert"
+					>
+						<AlertCircle className="size-4 shrink-0" />
+						<span>{generateIntroduction.error.message}</span>
+					</div>
+				) : null}
+				<Button
+					className="w-full gap-1.5"
+					disabled={generateIntroduction.isPending || introduction.isPending}
+					onClick={handleGenerateIntroduction}
+					variant="outline"
+				>
+					{generateIntroduction.isPending ? (
+						<Loader2 className="size-4 animate-spin" />
+					) : (
+						<Sparkles className="size-4" />
+					)}
+					{generateIntroduction.isPending ? "正在生成简介..." : "生成简介"}
+				</Button>
 			</CardContent>
 		</Card>
 	);
@@ -187,16 +240,14 @@ const getServiceStatus = (isError: boolean, isLoading: boolean) => {
 };
 
 function HomeComponent() {
-	const [generatedIntroduction, setGeneratedIntroduction] = useState("");
 	const [username, setUsername] = useState("");
 	const profiles = useQuery(trpc.githubProfiles.list.queryOptions());
-	const generateProfile = useMutation(
-		trpc.githubProfiles.generateFromUsername.mutationOptions({
-			onSuccess: async (result) => {
+	const createProfile = useMutation(
+		trpc.githubProfiles.createFromUsername.mutationOptions({
+			onSuccess: async (profile) => {
 				setUsername("");
-				setGeneratedIntroduction(result.introduction);
 				await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-				toast.success(`已生成 @${result.profile.login} 的个人介绍`);
+				toast.success(`已生成 @${profile.login} 的名片`);
 			},
 		})
 	);
@@ -217,9 +268,9 @@ function HomeComponent() {
 				toast.error("请输入有效的 GitHub 用户名");
 				return;
 			}
-			generateProfile.mutate({ username: normalizedUsername });
+			createProfile.mutate({ username: normalizedUsername });
 		},
-		[generateProfile, username]
+		[createProfile, username]
 	);
 	const handleUsernameChange = useCallback(
 		(event: ChangeEvent<HTMLInputElement>) => {
@@ -267,11 +318,10 @@ function HomeComponent() {
 					<Card className="shadow-xs">
 						<CardHeader className="border-b bg-muted/10 pb-4">
 							<CardTitle className="text-lg" id="add-profile-heading">
-								用 GitHub 用户名生成个人介绍
+								生成 GitHub 名片
 							</CardTitle>
 							<CardDescription>
-								输入公开用户名，Go 服务会读取 GitHub
-								资料、生成中文介绍，并保存至 Aurora PostgreSQL。
+								输入公开用户名，同步 GitHub 资料并保存名片。
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="grid gap-4 pt-4">
@@ -300,45 +350,28 @@ function HomeComponent() {
 								</div>
 								<Button
 									className="gap-1.5"
-									disabled={generateProfile.isPending || !username.trim()}
+									disabled={createProfile.isPending || !username.trim()}
 									type="submit"
 								>
-									{generateProfile.isPending ? (
+									{createProfile.isPending ? (
 										<Loader2 className="size-4 animate-spin" />
 									) : (
 										<Plus className="size-4" />
 									)}
-									{generateProfile.isPending
-										? "正在生成介绍..."
-										: "生成个人介绍"}
+									{createProfile.isPending ? "正在生成名片..." : "生成名片"}
 								</Button>
 							</form>
 
-							{generateProfile.error ? (
+							{createProfile.error ? (
 								<div
 									className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-destructive text-xs"
 									role="alert"
 								>
 									<AlertCircle className="size-4 shrink-0" />
 									<span>
-										{generateProfile.error.message ||
-											"生成介绍失败，请检查用户名或稍后重试。"}
+										{createProfile.error.message ||
+											"生成名片失败，请检查用户名或稍后重试。"}
 									</span>
-								</div>
-							) : null}
-
-							{generatedIntroduction ? (
-								<div
-									aria-live="polite"
-									className="grid gap-2 border-primary border-l-2 bg-muted/30 px-4 py-3"
-								>
-									<div className="flex items-center gap-2 font-medium text-sm">
-										<Sparkles className="size-4 text-primary" />
-										生成的个人介绍
-									</div>
-									<p className="text-muted-foreground text-sm leading-relaxed">
-										{generatedIntroduction}
-									</p>
 								</div>
 							) : null}
 						</CardContent>
@@ -401,8 +434,7 @@ function HomeComponent() {
 								</EmptyMedia>
 								<EmptyTitle>暂无已保存的开发者名片</EmptyTitle>
 								<EmptyDescription>
-									在上方输入 GitHub
-									用户名并生成个人介绍，同步的数据将收录在此处。
+									在上方输入 GitHub 用户名并生成名片，同步的数据将收录在此处。
 								</EmptyDescription>
 							</EmptyHeader>
 						</Empty>
@@ -412,7 +444,10 @@ function HomeComponent() {
 						{profiles.data?.map((profile) => (
 							<ProfileCard
 								deleteProfile={handleDelete}
-								isDeleting={deleteProfile.isPending}
+								isDeleting={
+									deleteProfile.isPending &&
+									deleteProfile.variables?.id === profile.id
+								}
 								key={profile.id}
 								profile={profile}
 							/>

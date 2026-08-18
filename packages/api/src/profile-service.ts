@@ -3,29 +3,14 @@ import { z } from "zod";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
-const profileSchema = z.object({
-	avatarUrl: z.url(),
-	bio: z.string().nullable(),
+const introductionSchema = z.object({
+	content: z.string().min(1),
 	createdAt: z.coerce.date(),
-	followers: z.number().int().nonnegative(),
-	following: z.number().int().nonnegative(),
-	githubCreatedAt: z.coerce.date(),
-	githubId: z.number().int().positive(),
 	id: z.uuid(),
-	location: z.string().nullable(),
-	login: z.string().min(1),
-	name: z.string().nullable(),
-	profileUrl: z.url(),
-	publicRepos: z.number().int().nonnegative(),
+	profileId: z.uuid(),
 	updatedAt: z.coerce.date(),
 });
 
-const introductionSchema = z.object({
-	introduction: z.string().min(1),
-	profile: profileSchema,
-});
-
-const deleteResultSchema = z.object({ id: z.uuid() });
 const errorSchema = z.object({ error: z.string().min(1) });
 
 export class ProfileServiceError extends Error {
@@ -69,22 +54,17 @@ const request = async (path: string, init?: RequestInit): Promise<unknown> => {
 	return body;
 };
 
-export const listProfiles = async () => {
-	const response = await request("/v1/profiles");
-	return z.array(profileSchema).parse(response);
-};
-
-export const generateProfileIntroduction = async (username: string) => {
+export const generateProfileIntroduction = async (profileId: string) => {
 	const response = await request(
-		`/v1/profiles/${encodeURIComponent(username)}/introduction`,
+		`/v1/profiles/${encodeURIComponent(profileId)}/introduction`,
 		{ method: "POST" }
 	);
 	return introductionSchema.parse(response);
 };
 
-export const deleteProfile = async (id: string) => {
-	const response = await request(`/v1/profiles/${encodeURIComponent(id)}`, {
-		method: "DELETE",
-	});
-	return deleteResultSchema.parse(response);
+export const getProfileIntroduction = async (profileId: string) => {
+	const response = await request(
+		`/v1/profiles/${encodeURIComponent(profileId)}/introduction`
+	);
+	return introductionSchema.parse(response);
 };

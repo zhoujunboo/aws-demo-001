@@ -20,20 +20,9 @@ type Profile struct {
 }
 
 type Introduction struct {
-	Introduction string  `json:"introduction"`
-	Profile      Profile `json:"profile"`
-}
-
-type GitHubProfile struct {
-	AvatarURL       string    `json:"avatar_url"`
-	Bio             *string   `json:"bio"`
-	Followers       int       `json:"followers"`
-	Following       int       `json:"following"`
-	GitHubCreatedAt time.Time `json:"created_at"`
-	GitHubID        int64     `json:"id"`
-	Location        *string   `json:"location"`
-	Login           string    `json:"login"`
-	Name            *string   `json:"name"`
-	ProfileURL      string    `json:"html_url"`
-	PublicRepos     int       `json:"public_repos"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"createdAt"`
+	ID        string    `json:"id"`
+	ProfileID string    `json:"profileId"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
