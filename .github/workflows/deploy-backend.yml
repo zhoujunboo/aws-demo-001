@@ -45,6 +45,7 @@ env:
   MIGRATION_FUNCTION_NAME: github-profile-dev-migration
   PRIVATE_SUBNET_A_CIDR: 10.0.11.0/24
   PRIVATE_SUBNET_B_CIDR: 10.0.12.0/24
+  PROFILE_SERVICE_URL: http://internal-aws-demo-001-profile-alb-1777119846.us-east-1.elb.amazonaws.com
   PROJECT_NAME: github-profile
   PUBLIC_SUBNET_CIDR: 10.0.1.0/24
   SAM_ARTIFACT_BUCKET: aws-sam-cli-managed-default-samclisourcebucket-tftx0efd35e6
@@ -121,6 +122,7 @@ jobs:
               AuroraMaxCapacity="$AURORA_MAX_CAPACITY" \
               CorsOrigin="$CORS_ORIGIN" \
               BetterAuthUrl="$BETTER_AUTH_URL" \
+              ProfileServiceUrl="$PROFILE_SERVICE_URL" \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
 

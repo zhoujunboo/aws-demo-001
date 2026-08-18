@@ -62,6 +62,9 @@ Parameters:
     Type: String
     Default: https://21y24vyexa.execute-api.us-east-1.amazonaws.com
     Description: Backend public URL. Update this to ApiUrl after the first deployment.
+  ProfileServiceUrl:
+    Type: String
+    Description: Internal ALB URL used by the Hono API to call the Go profile service.
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -401,6 +404,7 @@ Resources:
           DATABASE_PORT: !GetAtt DatabaseCluster.Endpoint.Port
           DATABASE_USERNAME: !Ref DatabaseUsername
           NODE_ENV: production
+          PROFILE_SERVICE_URL: !Ref ProfileServiceUrl
       Events:
         ProxyRoute:
           Type: HttpApi
