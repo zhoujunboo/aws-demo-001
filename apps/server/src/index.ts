@@ -11,56 +11,52 @@ const app = new Hono();
 
 app.use(logger());
 app.use(
-  "/*",
-  cors({
-    origin: env.CORS_ORIGIN,
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  }),
+	"/*",
+	cors({
+		allowHeaders: ["Content-Type", "Authorization"],
+		allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+		credentials: true,
+		origin: env.CORS_ORIGIN,
+	})
 );
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.use(
-  "/trpc/*",
-  trpcServer({
-    router: appRouter,
-    createContext: (_opts, context) => {
-      return createContext({ context });
-    },
-    onError: ({ error, path, type, req }) => {
-      console.error(
-        `[tRPC Error] path: "${path}", type: "${type}", url: "${req.url}":`,
-        {
-          message: error.message,
-          code: error.code,
-          cause: error.cause,
-          stack: error.stack,
-        },
-      );
-      if (error.cause) {
-        console.error("[tRPC Error Cause]:", error.cause);
-      }
-    },
-  }),
+	"/trpc/*",
+	trpcServer({
+		createContext: (_opts, context) => createContext({ context }),
+		onError: ({ error, path, type, req }) => {
+			console.error(
+				`[tRPC Error] path: "${path}", type: "${type}", url: "${req.url}":`,
+				{
+					cause: error.cause,
+					code: error.code,
+					message: error.message,
+					stack: error.stack,
+				}
+			);
+			if (error.cause) {
+				console.error("[tRPC Error Cause]:", error.cause);
+			}
+		},
+		router: appRouter,
+	})
 );
 
 app.onError((err, c) => {
-  console.error(`[Hono Server Error] ${c.req.method} ${c.req.url}:`, {
-    message: err.message,
-    name: err.name,
-    cause: err.cause,
-    stack: err.stack,
-  });
-  if (err.cause) {
-    console.error("[Hono Server Error Cause]:", err.cause);
-  }
-  return c.text(`Internal Server Error: ${err.message}`, 500);
+	console.error(`[Hono Server Error] ${c.req.method} ${c.req.url}:`, {
+		cause: err.cause,
+		message: err.message,
+		name: err.name,
+		stack: err.stack,
+	});
+	if (err.cause) {
+		console.error("[Hono Server Error Cause]:", err.cause);
+	}
+	return c.text(`Internal Server Error: ${err.message}`, 500);
 });
 
-app.get("/", (c) => {
-  return c.text("OK");
-});
+app.get("/", (c) => c.text("OK"));
 
 export default app;

@@ -18,6 +18,7 @@ export const env = createEnv({
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),
+		PROFILE_SERVICE_URL: z.url().default("http://localhost:8080"),
 	},
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });

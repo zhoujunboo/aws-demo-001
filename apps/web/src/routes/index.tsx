@@ -173,15 +173,30 @@ function ProfileCard({ deleteProfile, isDeleting, profile }: ProfileCardProps) {
 	);
 }
 
+const getServiceStatus = (isError: boolean, isLoading: boolean) => {
+	if (isError) {
+		return { className: "bg-destructive", label: "服务连接异常" };
+	}
+	if (isLoading) {
+		return {
+			className: "animate-pulse bg-amber-500",
+			label: "数据加载中...",
+		};
+	}
+	return { className: "bg-emerald-500", label: "服务正常运行" };
+};
+
 function HomeComponent() {
-	const [token, setToken] = useState("");
+	const [generatedIntroduction, setGeneratedIntroduction] = useState("");
+	const [username, setUsername] = useState("");
 	const profiles = useQuery(trpc.githubProfiles.list.queryOptions());
-	const saveProfile = useMutation(
-		trpc.githubProfiles.saveFromToken.mutationOptions({
-			onSuccess: async (profile) => {
-				setToken("");
+	const generateProfile = useMutation(
+		trpc.githubProfiles.generateFromUsername.mutationOptions({
+			onSuccess: async (result) => {
+				setUsername("");
+				setGeneratedIntroduction(result.introduction);
 				await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-				toast.success(`已成功保存 @${profile?.login ?? "GitHub 用户"} 的名片`);
+				toast.success(`已生成 @${result.profile.login} 的个人介绍`);
 			},
 		})
 	);
@@ -197,18 +212,18 @@ function HomeComponent() {
 	const handleSubmit = useCallback(
 		(event: FormEvent<HTMLFormElement>) => {
 			event.preventDefault();
-			const normalizedToken = token.trim();
-			if (!normalizedToken) {
-				toast.error("请输入有效的 GitHub Token");
+			const normalizedUsername = username.trim();
+			if (!normalizedUsername) {
+				toast.error("请输入有效的 GitHub 用户名");
 				return;
 			}
-			saveProfile.mutate({ token: normalizedToken });
+			generateProfile.mutate({ username: normalizedUsername });
 		},
-		[saveProfile, token]
+		[generateProfile, username]
 	);
-	const handleTokenChange = useCallback(
+	const handleUsernameChange = useCallback(
 		(event: ChangeEvent<HTMLInputElement>) => {
-			setToken(event.target.value);
+			setUsername(event.target.value);
 		},
 		[]
 	);
@@ -221,6 +236,7 @@ function HomeComponent() {
 		},
 		[deleteProfile]
 	);
+	const serviceStatus = getServiceStatus(profiles.isError, profiles.isLoading);
 
 	return (
 		<main className="min-h-full overflow-y-auto bg-muted/30 pb-12">
@@ -241,19 +257,9 @@ function HomeComponent() {
 					</div>
 					<div className="flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-muted-foreground text-xs shadow-xs">
 						<span
-							className={`size-2 rounded-full ${
-								profiles.isError
-									? "bg-destructive"
-									: profiles.isLoading
-										? "animate-pulse bg-amber-500"
-										: "bg-emerald-500"
-							}`}
+							className={`size-2 rounded-full ${serviceStatus.className}`}
 						/>
-						{profiles.isError
-							? "服务连接异常"
-							: profiles.isLoading
-								? "数据加载中..."
-								: "服务正常运行"}
+						{serviceStatus.label}
 					</div>
 				</header>
 
@@ -261,27 +267,19 @@ function HomeComponent() {
 					<Card className="shadow-xs">
 						<CardHeader className="border-b bg-muted/10 pb-4">
 							<CardTitle className="text-lg" id="add-profile-heading">
-								录入或同步 GitHub 名片
+								用 GitHub 用户名生成个人介绍
 							</CardTitle>
 							<CardDescription>
-								输入 GitHub 个人访问令牌（Personal Access
-								Token），系统将自动拉取资料并持久化保存至 DynamoDB。
+								输入公开用户名，Go 服务会读取 GitHub
+								资料、生成中文介绍，并保存至 Aurora PostgreSQL。
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="grid gap-4 pt-4">
 							<div className="flex items-center gap-2 rounded-md bg-muted/50 px-3.5 py-2.5 text-muted-foreground text-xs">
 								<Sparkles className="size-4 shrink-0 text-amber-500" />
 								<span>
-									提示：仅需公开读取权限。可前往{" "}
-									<a
-										className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
-										href="https://github.com/settings/tokens"
-										rel="noopener noreferrer"
-										target="_blank"
-									>
-										GitHub Token 设置页
-									</a>{" "}
-									生成 Classic 或 Fine-grained 访问令牌。
+									无需 Token。用户名只用于读取 GitHub
+									公开资料，不会访问私有仓库。
 								</span>
 							</div>
 
@@ -290,43 +288,57 @@ function HomeComponent() {
 								onSubmit={handleSubmit}
 							>
 								<div className="grid gap-2">
-									<Label htmlFor="github-token">
-										GitHub 个人访问令牌 (Token)
-									</Label>
+									<Label htmlFor="github-username">GitHub 用户名</Label>
 									<Input
-										autoComplete="off"
-										id="github-token"
-										name="github-token"
-										onChange={handleTokenChange}
-										placeholder="请输入以 ghp_ 或 github_pat_ 开头的访问令牌..."
-										type="password"
-										value={token}
+										autoComplete="username"
+										id="github-username"
+										name="github-username"
+										onChange={handleUsernameChange}
+										placeholder="例如：junbozhou88"
+										value={username}
 									/>
 								</div>
 								<Button
 									className="gap-1.5"
-									disabled={saveProfile.isPending || !token.trim()}
+									disabled={generateProfile.isPending || !username.trim()}
 									type="submit"
 								>
-									{saveProfile.isPending ? (
+									{generateProfile.isPending ? (
 										<Loader2 className="size-4 animate-spin" />
 									) : (
 										<Plus className="size-4" />
 									)}
-									{saveProfile.isPending ? "正在拉取名片..." : "获取并保存名片"}
+									{generateProfile.isPending
+										? "正在生成介绍..."
+										: "生成个人介绍"}
 								</Button>
 							</form>
 
-							{saveProfile.error ? (
+							{generateProfile.error ? (
 								<div
 									className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-destructive text-xs"
 									role="alert"
 								>
 									<AlertCircle className="size-4 shrink-0" />
 									<span>
-										{saveProfile.error.message ||
-											"获取名片失败，请检查 Token 是否有效或网络是否畅通。"}
+										{generateProfile.error.message ||
+											"生成介绍失败，请检查用户名或稍后重试。"}
 									</span>
+								</div>
+							) : null}
+
+							{generatedIntroduction ? (
+								<div
+									aria-live="polite"
+									className="grid gap-2 border-primary border-l-2 bg-muted/30 px-4 py-3"
+								>
+									<div className="flex items-center gap-2 font-medium text-sm">
+										<Sparkles className="size-4 text-primary" />
+										生成的个人介绍
+									</div>
+									<p className="text-muted-foreground text-sm leading-relaxed">
+										{generatedIntroduction}
+									</p>
 								</div>
 							) : null}
 						</CardContent>
@@ -390,7 +402,7 @@ function HomeComponent() {
 								<EmptyTitle>暂无已保存的开发者名片</EmptyTitle>
 								<EmptyDescription>
 									在上方输入 GitHub
-									访问令牌并点击「获取并保存名片」，同步的数据将收录在此处。
+									用户名并生成个人介绍，同步的数据将收录在此处。
 								</EmptyDescription>
 							</EmptyHeader>
 						</Empty>
