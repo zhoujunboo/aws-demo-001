@@ -62,9 +62,9 @@ Parameters:
     Type: String
     Default: https://21y24vyexa.execute-api.us-east-1.amazonaws.com
     Description: Backend public URL. Update this to ApiUrl after the first deployment.
-  ProfileServiceUrl:
+  ProfileServiceImageUri:
     Type: String
-    Description: Internal ALB URL used by the Hono API to call the Go profile service.
+    Description: Versioned ECR image URI for the Go profile service, including its tag or digest.
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -299,6 +299,11 @@ Resources:
           IpProtocol: tcp
           SourceSecurityGroupId: !Ref LambdaSecurityGroup
           ToPort: 5432
+        - Description: PostgreSQL from the Go profile service
+          FromPort: 5432
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref ProfileServiceSecurityGroup
+          ToPort: 5432
         - Description: PostgreSQL from bastion
           FromPort: 5432
           IpProtocol: tcp
@@ -377,6 +382,255 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  ProfileServiceLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow the Hono Lambda function to reach the internal profile service ALB.
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - Description: HTTP from the Hono Lambda function
+          FromPort: 80
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          ToPort: 80
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-profile-alb-sg"
+
+  ProfileServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow the internal profile service ALB to reach Fargate tasks.
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - Description: HTTP from the internal profile service ALB
+          FromPort: 8080
+          IpProtocol: tcp
+          SourceSecurityGroupId: !Ref ProfileServiceLoadBalancerSecurityGroup
+          ToPort: 8080
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-profile-service-sg"
+
+  ProfileServiceLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}-${EnvironmentName}-profile-service"
+      RetentionInDays: 14
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileServiceCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-${EnvironmentName}-profile-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileServiceTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${EnvironmentName}-profile-task-execution"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+      Policies:
+        - PolicyName: ReadAuroraMasterSecret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: "256"
+      ExecutionRoleArn: !GetAtt ProfileServiceTaskExecutionRole.Arn
+      Family: !Sub "${ProjectName}-${EnvironmentName}-profile-service"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: profile-service
+          Essential: true
+          Image: !Ref ProfileServiceImageUri
+          PortMappings:
+            - AppProtocol: http
+              ContainerPort: 8080
+              Name: http-8080-tcp
+              Protocol: tcp
+          Environment:
+            - Name: CORS_ORIGIN
+              Value: !Ref CorsOrigin
+            - Name: DATABASE_HOST
+              Value: !GetAtt DatabaseCluster.Endpoint.Address
+            - Name: DATABASE_MAX_CONNECTIONS
+              Value: "5"
+            - Name: DATABASE_NAME
+              Value: !Ref DatabaseName
+            - Name: DATABASE_PORT
+              Value: !GetAtt DatabaseCluster.Endpoint.Port
+            - Name: DATABASE_SSLMODE
+              Value: require
+            - Name: PORT
+              Value: "8080"
+          Secrets:
+            - Name: DATABASE_PASSWORD
+              ValueFrom: !Sub "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
+            - Name: DATABASE_USERNAME
+              ValueFrom: !Sub "${DatabaseCluster.MasterUserSecret.SecretArn}:username::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ProfileServiceLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+              mode: blocking
+          ReadonlyRootFilesystem: true
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileServiceLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: "false"
+        - Key: routing.http.drop_invalid_header_fields.enabled
+          Value: "true"
+      Name: !Sub "${ProjectName}-${EnvironmentName}-profile-alb"
+      Scheme: internal
+      SecurityGroups:
+        - !Ref ProfileServiceLoadBalancerSecurityGroup
+      Subnets:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      Type: application
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileServiceTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /healthz
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Name: !Sub "${ProjectName}-${EnvironmentName}-profile-tg"
+      Port: 8080
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "60"
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileServiceListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ProfileServiceTargetGroup
+      LoadBalancerArn: !Ref ProfileServiceLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ProfileService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - DatabaseInstance
+      - ProfileServiceListener
+    Properties:
+      Cluster: !Ref ProfileServiceCluster
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      EnableECSManagedTags: true
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: profile-service
+          ContainerPort: 8080
+          TargetGroupArn: !Ref ProfileServiceTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref ProfileServiceSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetB
+      PlatformVersion: LATEST
+      PropagateTags: SERVICE
+      ServiceName: !Sub "${ProjectName}-${EnvironmentName}-profile-service"
+      TaskDefinition: !Ref ProfileServiceTaskDefinition
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -390,6 +644,8 @@ Resources:
 
   ApiFunction:
     Type: AWS::Serverless::Function
+    DependsOn:
+      - ProfileService
     Properties:
       CodeUri: apps/server/dist/lambda/
       Description: Hono API connected to Aurora PostgreSQL.
@@ -404,7 +660,7 @@ Resources:
           DATABASE_PORT: !GetAtt DatabaseCluster.Endpoint.Port
           DATABASE_USERNAME: !Ref DatabaseUsername
           NODE_ENV: production
-          PROFILE_SERVICE_URL: !Ref ProfileServiceUrl
+          PROFILE_SERVICE_URL: !Sub "http://${ProfileServiceLoadBalancer.DNSName}"
       Events:
         ProxyRoute:
           Type: HttpApi
@@ -470,6 +726,14 @@ Outputs:
     Value: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
   MigrationFunctionName:
     Value: !Ref MigrationFunction
+  ProfileServiceClusterName:
+    Value: !Ref ProfileServiceCluster
+  ProfileServiceLoadBalancerDnsName:
+    Value: !GetAtt ProfileServiceLoadBalancer.DNSName
+  ProfileServiceName:
+    Value: !GetAtt ProfileService.Name
+  ProfileServiceUrl:
+    Value: !Sub "http://${ProfileServiceLoadBalancer.DNSName}"
   PrivateSubnetAId:
     Value: !Ref PrivateSubnetA
   PrivateSubnetBId:
