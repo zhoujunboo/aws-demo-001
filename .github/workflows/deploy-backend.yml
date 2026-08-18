@@ -104,7 +104,7 @@ jobs:
             --region "$AWS_REGION" \
             --s3-bucket "$SAM_ARTIFACT_BUCKET" \
             --s3-prefix "$SAM_ARTIFACT_PREFIX" \
-            --capabilities CAPABILITY_IAM \
+            --capabilities CAPABILITY_NAMED_IAM \
             --role-arn "$CLOUDFORMATION_EXECUTION_ROLE_ARN" \
             --parameter-overrides \
               ProjectName="$PROJECT_NAME" \
