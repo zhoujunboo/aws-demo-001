@@ -22,11 +22,15 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import {
+	AlertCircle,
+	Calendar,
 	Code2,
 	ExternalLink,
 	Loader2,
 	MapPin,
+	Plus,
 	RefreshCw,
+	Sparkles,
 	Trash2,
 } from "lucide-react";
 import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
@@ -41,11 +45,20 @@ const profilesQueryKey = trpc.githubProfiles.list.queryKey();
 type GithubProfile =
 	inferRouterOutputs<AppRouter>["githubProfiles"]["list"][number];
 
+function formatJoinDate(dateString: string | Date) {
+	try {
+		const date = new Date(dateString);
+		return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月加入 GitHub`;
+	} catch {
+		return "已加入 GitHub";
+	}
+}
+
 function ProfileSkeleton() {
 	return (
-		<Card>
-			<CardContent className="flex items-center gap-4">
-				<Skeleton className="size-12 shrink-0" />
+		<Card className="overflow-hidden">
+			<CardContent className="flex items-center gap-4 p-5">
+				<Skeleton className="size-12 shrink-0 rounded-full" />
 				<div className="grid flex-1 gap-2">
 					<Skeleton className="h-4 w-36" />
 					<Skeleton className="h-3 w-52 max-w-full" />
@@ -68,28 +81,28 @@ function ProfileCard({ deleteProfile, isDeleting, profile }: ProfileCardProps) {
 	);
 
 	return (
-		<Card>
-			<CardHeader>
+		<Card className="flex flex-col justify-between transition-shadow hover:shadow-md">
+			<CardHeader className="pb-3">
 				<div className="flex min-w-0 items-center gap-3">
 					<img
-						alt={`${profile.login} avatar`}
-						className="size-12 shrink-0 border object-cover"
+						alt={`${profile.name || profile.login} 的头像`}
+						className="size-12 shrink-0 rounded-full border object-cover shadow-xs"
 						height={48}
 						src={profile.avatarUrl}
 						width={48}
 					/>
 					<div className="min-w-0">
-						<CardTitle className="truncate">
+						<CardTitle className="truncate text-base">
 							{profile.name || profile.login}
 						</CardTitle>
-						<CardDescription className="truncate">
+						<CardDescription className="truncate text-xs">
 							@{profile.login}
 						</CardDescription>
 					</div>
 				</div>
 				<CardAction className="flex gap-1">
 					<Button
-						aria-label={`Open ${profile.login} on GitHub`}
+						aria-label={`在 GitHub 上查看 ${profile.login} 的主页`}
 						render={
 							<a
 								href={profile.profileUrl}
@@ -98,57 +111,62 @@ function ProfileCard({ deleteProfile, isDeleting, profile }: ProfileCardProps) {
 							/>
 						}
 						size="icon-sm"
-						title="Open GitHub profile"
+						title="在 GitHub 打开个人主页"
 						variant="ghost"
 					>
-						<ExternalLink />
+						<ExternalLink className="size-4" />
 					</Button>
 					<Button
-						aria-label={`Delete ${profile.login}`}
+						aria-label={`删除 ${profile.login} 的名片`}
 						disabled={isDeleting}
 						onClick={handleDelete}
 						size="icon-sm"
-						title="Delete saved profile"
+						title="删除此名片"
 						variant="destructive"
 					>
-						<Trash2 />
+						<Trash2 className="size-4" />
 					</Button>
 				</CardAction>
 			</CardHeader>
-			<CardContent className="grid gap-4">
+			<CardContent className="grid gap-3.5 pt-0">
 				{profile.bio ? (
-					<p className="line-clamp-2 min-h-10 text-muted-foreground">
+					<p className="line-clamp-2 min-h-10 text-muted-foreground text-sm leading-relaxed">
 						{profile.bio}
 					</p>
-				) : null}
-				<dl className="grid grid-cols-3 gap-3 border-y py-3 text-center">
+				) : (
+					<p className="line-clamp-2 min-h-10 text-muted-foreground/60 text-xs italic">
+						暂未填写个人简介
+					</p>
+				)}
+				<dl className="grid grid-cols-3 gap-2 rounded-lg border bg-muted/20 py-2.5 text-center">
 					<div>
-						<dt className="text-muted-foreground">Repositories</dt>
-						<dd className="mt-1 font-medium text-base">
+						<dt className="text-muted-foreground text-xs">公开仓库</dt>
+						<dd className="mt-0.5 font-semibold text-sm">
 							{profile.publicRepos}
 						</dd>
 					</div>
 					<div>
-						<dt className="text-muted-foreground">Followers</dt>
-						<dd className="mt-1 font-medium text-base">{profile.followers}</dd>
+						<dt className="text-muted-foreground text-xs">关注者</dt>
+						<dd className="mt-0.5 font-semibold text-sm">
+							{profile.followers}
+						</dd>
 					</div>
 					<div>
-						<dt className="text-muted-foreground">Following</dt>
-						<dd className="mt-1 font-medium text-base">{profile.following}</dd>
+						<dt className="text-muted-foreground text-xs">正在关注</dt>
+						<dd className="mt-0.5 font-semibold text-sm">
+							{profile.following}
+						</dd>
 					</div>
 				</dl>
-				<div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
-					{profile.location ? (
-						<>
-							<MapPin className="size-3.5" />
-							<span className="truncate">{profile.location}</span>
-						</>
-					) : (
-						<span>
-							GitHub member since{" "}
-							{new Date(profile.githubCreatedAt).getFullYear()}
-						</span>
-					)}
+				<div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2.5 text-muted-foreground text-xs">
+					<div className="flex items-center gap-1.5 truncate">
+						<MapPin className="size-3.5 shrink-0" />
+						<span className="truncate">{profile.location || "未设置位置"}</span>
+					</div>
+					<div className="flex shrink-0 items-center gap-1.5">
+						<Calendar className="size-3.5 shrink-0" />
+						<span>{formatJoinDate(profile.githubCreatedAt)}</span>
+					</div>
 				</div>
 			</CardContent>
 		</Card>
@@ -163,7 +181,7 @@ function HomeComponent() {
 			onSuccess: async (profile) => {
 				setToken("");
 				await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-				toast.success(`Saved @${profile?.login ?? "GitHub user"}`);
+				toast.success(`已成功保存 @${profile?.login ?? "GitHub 用户"} 的名片`);
 			},
 		})
 	);
@@ -171,7 +189,7 @@ function HomeComponent() {
 		trpc.githubProfiles.delete.mutationOptions({
 			onSuccess: async () => {
 				await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
-				toast.success("Profile deleted");
+				toast.success("名片已删除");
 			},
 		})
 	);
@@ -181,7 +199,7 @@ function HomeComponent() {
 			event.preventDefault();
 			const normalizedToken = token.trim();
 			if (!normalizedToken) {
-				toast.error("Enter a GitHub token");
+				toast.error("请输入有效的 GitHub Token");
 				return;
 			}
 			saveProfile.mutate({ token: normalizedToken });
@@ -205,66 +223,111 @@ function HomeComponent() {
 	);
 
 	return (
-		<main className="overflow-y-auto bg-muted/30">
+		<main className="min-h-full overflow-y-auto bg-muted/30 pb-12">
 			<div className="mx-auto grid w-full max-w-5xl gap-6 px-4 py-8 md:px-6">
 				<header className="flex flex-wrap items-end justify-between gap-4 border-b pb-5">
 					<div className="grid gap-1">
-						<p className="font-medium text-muted-foreground text-xs uppercase">
-							Account directory
+						<div className="flex items-center gap-2">
+							<span className="rounded-md bg-primary/10 px-2 py-0.5 font-medium text-primary text-xs">
+								开发者名片簿
+							</span>
+						</div>
+						<h1 className="font-bold text-2xl tracking-tight sm:text-3xl">
+							GitHub 开发者名片夹
+						</h1>
+						<p className="text-muted-foreground text-sm">
+							一键同步 GitHub 用户个人资料与公开统计数据，沉淀云端开发者名片。
 						</p>
-						<h1 className="font-semibold text-2xl">GitHub profiles</h1>
 					</div>
-					<div className="flex items-center gap-2 text-muted-foreground text-xs">
+					<div className="flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-muted-foreground text-xs shadow-xs">
 						<span
-							className={`size-2 ${profiles.isError ? "bg-destructive" : "bg-emerald-500"}`}
+							className={`size-2 rounded-full ${
+								profiles.isError
+									? "bg-destructive"
+									: profiles.isLoading
+										? "animate-pulse bg-amber-500"
+										: "bg-emerald-500"
+							}`}
 						/>
-						{profiles.isError ? "Database unavailable" : "Service connected"}
+						{profiles.isError
+							? "服务连接异常"
+							: profiles.isLoading
+								? "数据加载中..."
+								: "服务正常运行"}
 					</div>
 				</header>
 
 				<section aria-labelledby="add-profile-heading">
-					<Card>
-						<CardHeader className="border-b">
-							<CardTitle id="add-profile-heading">
-								Add or refresh profile
+					<Card className="shadow-xs">
+						<CardHeader className="border-b bg-muted/10 pb-4">
+							<CardTitle className="text-lg" id="add-profile-heading">
+								录入或同步 GitHub 名片
 							</CardTitle>
 							<CardDescription>
-								Use a GitHub personal access token for the account.
+								输入 GitHub 个人访问令牌（Personal Access
+								Token），系统将自动拉取资料并持久化保存至 DynamoDB。
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="grid gap-4 pt-4">
+							<div className="flex items-center gap-2 rounded-md bg-muted/50 px-3.5 py-2.5 text-muted-foreground text-xs">
+								<Sparkles className="size-4 shrink-0 text-amber-500" />
+								<span>
+									提示：仅需公开读取权限。可前往{" "}
+									<a
+										className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+										href="https://github.com/settings/tokens"
+										rel="noopener noreferrer"
+										target="_blank"
+									>
+										GitHub Token 设置页
+									</a>{" "}
+									生成 Classic 或 Fine-grained 访问令牌。
+								</span>
+							</div>
+
 							<form
 								className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end"
 								onSubmit={handleSubmit}
 							>
 								<div className="grid gap-2">
-									<Label htmlFor="github-token">Personal access token</Label>
+									<Label htmlFor="github-token">
+										GitHub 个人访问令牌 (Token)
+									</Label>
 									<Input
 										autoComplete="off"
 										id="github-token"
 										name="github-token"
 										onChange={handleTokenChange}
-										placeholder="github_pat_..."
+										placeholder="请输入以 ghp_ 或 github_pat_ 开头的访问令牌..."
 										type="password"
 										value={token}
 									/>
 								</div>
 								<Button
+									className="gap-1.5"
 									disabled={saveProfile.isPending || !token.trim()}
 									type="submit"
 								>
 									{saveProfile.isPending ? (
-										<Loader2 className="animate-spin" />
+										<Loader2 className="size-4 animate-spin" />
 									) : (
-										<Code2 />
+										<Plus className="size-4" />
 									)}
-									{saveProfile.isPending ? "Fetching" : "Fetch and save"}
+									{saveProfile.isPending ? "正在拉取名片..." : "获取并保存名片"}
 								</Button>
 							</form>
+
 							{saveProfile.error ? (
-								<p className="mt-3 text-destructive text-xs" role="alert">
-									{saveProfile.error.message}
-								</p>
+								<div
+									className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-destructive text-xs"
+									role="alert"
+								>
+									<AlertCircle className="size-4 shrink-0" />
+									<span>
+										{saveProfile.error.message ||
+											"获取名片失败，请检查 Token 是否有效或网络是否畅通。"}
+									</span>
+								</div>
 							) : null}
 						</CardContent>
 					</Card>
@@ -272,34 +335,33 @@ function HomeComponent() {
 
 				<section
 					aria-labelledby="saved-profiles-heading"
-					className="grid gap-3"
+					className="grid gap-4"
 				>
 					<div className="flex items-center justify-between gap-3">
-						<div>
-							<h2 className="font-medium text-base" id="saved-profiles-heading">
-								Saved profiles
+						<div className="flex items-center gap-2.5">
+							<h2 className="font-semibold text-lg" id="saved-profiles-heading">
+								已保存的名片
 							</h2>
-							<p className="text-muted-foreground text-xs">
-								{profiles.data?.length ?? 0}{" "}
-								{profiles.data?.length === 1 ? "account" : "accounts"}
-							</p>
+							<span className="rounded-full bg-muted px-2.5 py-0.5 font-medium text-muted-foreground text-xs">
+								共 {profiles.data?.length ?? 0} 张
+							</span>
 						</div>
 						<Button
-							aria-label="Refresh saved profiles"
+							aria-label="刷新名片列表"
 							disabled={profiles.isFetching}
 							onClick={handleRefresh}
 							size="icon"
-							title="Refresh saved profiles"
+							title="刷新名片列表"
 							variant="outline"
 						>
 							<RefreshCw
-								className={profiles.isFetching ? "animate-spin" : ""}
+								className={`size-4 ${profiles.isFetching ? "animate-spin" : ""}`}
 							/>
 						</Button>
 					</div>
 
 					{profiles.isLoading ? (
-						<div className="grid gap-3">
+						<div className="grid gap-4 md:grid-cols-2">
 							<ProfileSkeleton />
 							<ProfileSkeleton />
 						</div>
@@ -307,30 +369,34 @@ function HomeComponent() {
 
 					{profiles.isError ? (
 						<Card>
-							<CardContent className="flex items-center justify-between gap-4">
-								<p className="text-destructive">{profiles.error.message}</p>
-								<Button onClick={handleRefresh} variant="outline">
-									Retry
+							<CardContent className="flex items-center justify-between gap-4 p-6">
+								<div className="flex items-center gap-2 text-destructive text-sm">
+									<AlertCircle className="size-4 shrink-0" />
+									<span>{profiles.error.message}</span>
+								</div>
+								<Button onClick={handleRefresh} size="sm" variant="outline">
+									重新加载
 								</Button>
 							</CardContent>
 						</Card>
 					) : null}
 
 					{profiles.data?.length === 0 ? (
-						<Empty className="border">
+						<Empty className="border border-dashed py-12">
 							<EmptyHeader>
 								<EmptyMedia variant="icon">
-									<Code2 />
+									<Code2 className="size-8" />
 								</EmptyMedia>
-								<EmptyTitle>No saved profiles</EmptyTitle>
+								<EmptyTitle>暂无已保存的开发者名片</EmptyTitle>
 								<EmptyDescription>
-									Profiles fetched from GitHub will appear here.
+									在上方输入 GitHub
+									访问令牌并点击「获取并保存名片」，同步的数据将收录在此处。
 								</EmptyDescription>
 							</EmptyHeader>
 						</Empty>
 					) : null}
 
-					<div className="grid gap-3 md:grid-cols-2">
+					<div className="grid gap-4 md:grid-cols-2">
 						{profiles.data?.map((profile) => (
 							<ProfileCard
 								deleteProfile={handleDelete}
