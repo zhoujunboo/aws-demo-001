@@ -26,6 +26,10 @@ Parameters:
     Type: String
     Default: "1332961829"
     AllowedPattern: "^[0-9]+$"
+  ProfileServiceEcrRepositoryName:
+    Type: String
+    Default: aws-demo-001/profile-service
+    AllowedPattern: "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
   SamArtifactBucketName:
     Type: String
     Default: aws-sam-cli-managed-default-samclisourcebucket-tftx0efd35e6
@@ -179,6 +183,19 @@ Resources:
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackName}-migration"
+              - Sid: AuthenticateToEcr
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PushProfileServiceImages
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ProfileServiceEcrRepositoryName}"
       RoleName: !Sub "${ApplicationStackName}-github-actions-deploy"
       Tags:
         - Key: ManagedBy

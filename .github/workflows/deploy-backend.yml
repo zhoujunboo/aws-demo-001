@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - ".github/workflows/deploy-backend.yml"
+      - "apps/profile-service/**"
       - "apps/server/**"
       - "packages/api/**"
       - "packages/auth/**"
@@ -45,7 +46,7 @@ env:
   MIGRATION_FUNCTION_NAME: github-profile-dev-migration
   PRIVATE_SUBNET_A_CIDR: 10.0.11.0/24
   PRIVATE_SUBNET_B_CIDR: 10.0.12.0/24
-  PROFILE_SERVICE_IMAGE_URI: 492646066759.dkr.ecr.us-east-1.amazonaws.com/aws-demo-001/profile-service:v0.1.0
+  ECR_REPOSITORY_URI: 492646066759.dkr.ecr.us-east-1.amazonaws.com/aws-demo-001/profile-service
   PROJECT_NAME: github-profile
   PUBLIC_SUBNET_CIDR: 10.0.1.0/24
   SAM_ARTIFACT_BUCKET: aws-sam-cli-managed-default-samclisourcebucket-tftx0efd35e6
@@ -95,6 +96,22 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: github-actions-${{ github.run_id }}
           role-to-assume: ${{ env.GITHUB_ACTIONS_DEPLOY_ROLE_ARN }}
+
+      - name: Build and push Go service image
+        run: |
+          PROFILE_SERVICE_IMAGE_URI="$ECR_REPOSITORY_URI:sha-$GITHUB_SHA"
+          echo "PROFILE_SERVICE_IMAGE_URI=$PROFILE_SERVICE_IMAGE_URI" >> "$GITHUB_ENV"
+
+          aws ecr get-login-password --region "$AWS_REGION" |
+            docker login \
+              --username AWS \
+              --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+
+          docker build \
+            --platform linux/amd64 \
+            --tag "$PROFILE_SERVICE_IMAGE_URI" \
+            apps/profile-service
+          docker push "$PROFILE_SERVICE_IMAGE_URI"
 
       - name: Deploy SAM application
         run: |
