@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Ephemeral Go profile service for a pull request preview.
+
+Parameters:
+  ClusterName:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9_-]{1,255}$"
+  CorsOrigin:
+    Type: String
+    AllowedPattern: "^https://[A-Za-z0-9.-]+$"
+  DatabaseHost:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9.-]+$"
+  DatabaseName:
+    Type: String
+    AllowedPattern: "^[A-Za-z][A-Za-z0-9]*$"
+  DatabasePort:
+    Type: Number
+    Default: 5432
+    MinValue: 1
+    MaxValue: 65535
+  DatabaseSecretArn:
+    Type: String
+    AllowedPattern: "^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$"
+  ImageUri:
+    Type: String
+    AllowedPattern: "^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/[a-z0-9._/-]+:[A-Za-z0-9._-]+$"
+  ListenerArn:
+    Type: String
+    AllowedPattern: "^arn:aws:elasticloadbalancing:[a-z0-9-]+:[0-9]{12}:listener/.+$"
+  PrivateSubnetAId:
+    Type: AWS::EC2::Subnet::Id
+  PrivateSubnetBId:
+    Type: AWS::EC2::Subnet::Id
+  PreviewId:
+    Type: String
+    AllowedPattern: "^pr-[1-9][0-9]{0,4}$"
+  PreviewNumber:
+    Type: Number
+    MinValue: 1
+    MaxValue: 50000
+  ServiceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  TaskExecutionRoleArn:
+    Type: String
+    AllowedPattern: "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$"
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+Resources:
+  PreviewLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/ecs/github-profile-${PreviewId}-profile-service"
+      RetentionInDays: 7
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: PreviewId
+          Value: !Ref PreviewId
+
+  PreviewTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: "256"
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      Family: !Sub "github-profile-${PreviewId}-profile-service"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: profile-service
+          Essential: true
+          Image: !Ref ImageUri
+          PortMappings:
+            - AppProtocol: http
+              ContainerPort: 8080
+              Name: http-8080-tcp
+              Protocol: tcp
+          Environment:
+            - Name: CORS_ORIGIN
+              Value: !Ref CorsOrigin
+            - Name: DATABASE_HOST
+              Value: !Ref DatabaseHost
+            - Name: DATABASE_MAX_CONNECTIONS
+              Value: "2"
+            - Name: DATABASE_NAME
+              Value: !Ref DatabaseName
+            - Name: DATABASE_PORT
+              Value: !Sub "${DatabasePort}"
+            - Name: DATABASE_SSLMODE
+              Value: require
+            - Name: PORT
+              Value: "8080"
+          Secrets:
+            - Name: DATABASE_PASSWORD
+              ValueFrom: !Sub "${DatabaseSecretArn}:password::"
+            - Name: DATABASE_USERNAME
+              ValueFrom: !Sub "${DatabaseSecretArn}:username::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref PreviewLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+              mode: blocking
+          ReadonlyRootFilesystem: true
+          StopTimeout: 30
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: PreviewId
+          Value: !Ref PreviewId
+
+  PreviewTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 15
+      HealthCheckPath: /healthz
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Name: !Sub "github-${PreviewId}-profile-tg"
+      Port: 8080
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: PreviewId
+          Value: !Ref PreviewId
+
+  PreviewListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref PreviewTargetGroup
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-Preview-PR
+            Values:
+              - !Ref PreviewId
+      ListenerArn: !Ref ListenerArn
+      Priority: !Ref PreviewNumber
+
+  PreviewService:
+    Type: AWS::ECS::Service
+    DependsOn: PreviewListenerRule
+    Properties:
+      Cluster: !Ref ClusterName
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      EnableECSManagedTags: true
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: profile-service
+          ContainerPort: 8080
+          TargetGroupArn: !Ref PreviewTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroupId
+          Subnets:
+            - !Ref PrivateSubnetAId
+            - !Ref PrivateSubnetBId
+      PlatformVersion: LATEST
+      PropagateTags: SERVICE
+      ServiceName: !Sub "github-profile-${PreviewId}-profile-service"
+      TaskDefinition: !Ref PreviewTaskDefinition
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: PreviewId
+          Value: !Ref PreviewId
+
+Outputs:
+  PreviewHeader:
+    Description: Header value that routes requests to this preview service.
+    Value: !Ref PreviewId
+  PreviewServiceName:
+    Description: ECS service created for this pull request.
+    Value: !GetAtt PreviewService.Name
+  PreviewTargetGroupArn:
+    Description: Target group selected by the pull request listener rule.
+    Value: !Ref PreviewTargetGroup
