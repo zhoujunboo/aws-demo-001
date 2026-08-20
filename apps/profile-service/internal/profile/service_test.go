@@ -43,13 +43,15 @@ func TestGenerateIntroduction(t *testing.T) {
 	location := "Cloud"
 	bio := "Builds reliable software"
 	repository := &memoryRepository{profile: Profile{
-		Bio:         &bio,
-		Followers:   42,
-		ID:          testProfileID,
-		Location:    &location,
-		Login:       "codex",
-		Name:        &name,
-		PublicRepos: 12,
+		Bio:             &bio,
+		Followers:       42,
+		Following:       8,
+		GitHubCreatedAt: time.Date(2021, time.January, 1, 0, 0, 0, 0, time.UTC),
+		ID:              testProfileID,
+		Location:        &location,
+		Login:           "codex",
+		Name:            &name,
+		PublicRepos:     12,
 	}}
 	service := NewService(repository)
 	service.now = func() time.Time { return time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC) }
@@ -59,7 +61,7 @@ func TestGenerateIntroduction(t *testing.T) {
 		t.Fatalf("GenerateIntroduction returned an error: %v", err)
 	}
 
-	expected := "我是 Codex（@codex）。来自 Cloud。目前在 GitHub 维护 12 个公开仓库，并有 42 位关注者。个人简介是：“Builds reliable software”。"
+	expected := "你好，我是 Codex（@codex），来自 Cloud。自 2021 年加入 GitHub 社区以来，始终保持对开源与技术创新的热情。目前在平台维护了 12 个公开仓库，收获了 42 位同行的关注，同时也关注了 8 位优秀的开发者。个人简介是：“Builds reliable software”。热衷于探索前沿技术与工程实践，持续构建高质量的软件项目，期待与大家交流合作、共同成长。"
 	if result.Content != expected {
 		t.Fatalf("unexpected introduction: %q", result.Content)
 	}
@@ -68,6 +70,28 @@ func TestGenerateIntroduction(t *testing.T) {
 	}
 	if repository.introduction.Content != expected {
 		t.Fatal("introduction was not saved")
+	}
+}
+
+func TestGenerateIntroductionMinimalProfile(t *testing.T) {
+	repository := &memoryRepository{profile: Profile{
+		Followers:   0,
+		Following:   0,
+		ID:          testProfileID,
+		Login:       "developer",
+		PublicRepos: 3,
+	}}
+	service := NewService(repository)
+	service.now = func() time.Time { return time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC) }
+
+	result, err := service.GenerateIntroduction(context.Background(), testProfileID)
+	if err != nil {
+		t.Fatalf("GenerateIntroduction returned an error: %v", err)
+	}
+
+	expected := "你好，我是 developer（@developer）。目前在平台维护了 3 个公开仓库，拥有 0 位关注者。热衷于探索前沿技术与工程实践，持续构建高质量的软件项目，期待与大家交流合作、共同成长。"
+	if result.Content != expected {
+		t.Fatalf("unexpected introduction: %q", result.Content)
 	}
 }
 
