@@ -109,6 +109,7 @@ Resources:
                   - ecr:BatchDeleteImage
                   - ecr:CompleteLayerUpload
                   - ecr:InitiateLayerUpload
+                  - ecr:ListImages
                   - ecr:PutImage
                   - ecr:UploadLayerPart
                 Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrRepositoryName}"
@@ -125,6 +126,12 @@ Resources:
                   - cloudformation:TagResource
                   - cloudformation:UntagResource
                 Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${PreviewStackPrefix}*/*"
+              - Sid: ReadApplicationStack
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ListStackResources
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ApplicationStackName}/*"
               - Sid: ReadCloudFormationMetadata
                 Effect: Allow
                 Action:
