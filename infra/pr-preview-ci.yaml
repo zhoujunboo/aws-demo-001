@@ -1,0 +1,262 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CI foundation for pull request preview environments.
+
+Parameters:
+  ApplicationStackName:
+    Type: String
+    Default: github-profile-dev
+    AllowedPattern: "^[a-z][a-z0-9-]*$"
+  CloudFormationExecutionRoleArn:
+    Type: String
+    Default: arn:aws:iam::492646066759:role/github-profile-dev-cloudformation-execution
+    AllowedPattern: "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$"
+  CodeBuildProjectName:
+    Type: String
+    Default: github-profile-pr-preview
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9_-]{1,254}$"
+  EcrRepositoryName:
+    Type: String
+    Default: aws-demo-001/profile-service
+    AllowedPattern: "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+  GitHubConnectionArn:
+    Type: String
+    Default: arn:aws:codeconnections:us-east-1:492646066759:connection/bb551c5c-0e3f-44a7-96f1-bcae77b37bec
+    AllowedPattern: "^arn:aws:(?:codeconnections|codestar-connections):[a-z0-9-]+:[0-9]{12}:connection/[A-Za-z0-9-]+$"
+  GitHubOwner:
+    Type: String
+    Default: zhoujunboo
+    AllowedPattern: "^[A-Za-z0-9-]+$"
+  GitHubOwnerId:
+    Type: String
+    Default: "45096495"
+    AllowedPattern: "^[0-9]+$"
+  GitHubRepository:
+    Type: String
+    Default: aws-demo-001
+    AllowedPattern: "^[A-Za-z0-9._-]+$"
+  GitHubRepositoryId:
+    Type: String
+    Default: "1332961829"
+    AllowedPattern: "^[0-9]+$"
+  GitHubOidcProviderArn:
+    Type: String
+    Default: arn:aws:iam::492646066759:oidc-provider/token.actions.githubusercontent.com
+    AllowedPattern: "^arn:aws:iam::[0-9]{12}:oidc-provider/token.actions.githubusercontent.com$"
+  PreviewStackPrefix:
+    Type: String
+    Default: github-profile-pr-
+    AllowedPattern: "^[a-z][a-z0-9-]*-$"
+
+Resources:
+  PreviewBuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/codebuild/${CodeBuildProjectName}"
+      RetentionInDays: 14
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: !Ref ApplicationStackName
+
+  PreviewCodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ApplicationStackName}-pr-codebuild"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Description: Builds Go preview images and manages pull request preview stacks.
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: RunPreviewBuild
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadPreviewSource
+                Effect: Allow
+                Action:
+                  - codeconnections:GetConnection
+                  - codeconnections:GetConnectionToken
+                Resource: !Ref GitHubConnectionArn
+              - Sid: WriteBuildLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${CodeBuildProjectName}:*"
+              - Sid: GetEcrAuthorizationToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PublishAndDeletePreviewImages
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchDeleteImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrRepositoryName}"
+              - Sid: ManagePreviewStacks
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:TagResource
+                  - cloudformation:UntagResource
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${PreviewStackPrefix}*/*"
+              - Sid: ReadCloudFormationMetadata
+                Effect: Allow
+                Action:
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStacks
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+              - Sid: PassCloudFormationExecutionRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Ref CloudFormationExecutionRoleArn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: !Ref ApplicationStackName
+
+  PreviewCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref CodeBuildProjectName
+      Description: Builds and deploys isolated Go preview environments for pull requests.
+      Artifacts:
+        Type: NO_ARTIFACTS
+      BadgeEnabled: false
+      ConcurrentBuildLimit: 2
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        EnvironmentVariables:
+          - Name: APPLICATION_STACK_NAME
+            Type: PLAINTEXT
+            Value: !Ref ApplicationStackName
+          - Name: CLOUDFORMATION_EXECUTION_ROLE_ARN
+            Type: PLAINTEXT
+            Value: !Ref CloudFormationExecutionRoleArn
+          - Name: ECR_REPOSITORY_URI
+            Type: PLAINTEXT
+            Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}/${EcrRepositoryName}"
+          - Name: PREVIEW_STACK_PREFIX
+            Type: PLAINTEXT
+            Value: !Ref PreviewStackPrefix
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        ImagePullCredentialsType: CODEBUILD
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Ref PreviewBuildLogGroup
+          Status: ENABLED
+          StreamName: preview
+        S3Logs:
+          Status: DISABLED
+      QueuedTimeoutInMinutes: 30
+      ServiceRole: !GetAtt PreviewCodeBuildRole.Arn
+      Source:
+        Auth:
+          Resource: !Ref GitHubConnectionArn
+          Type: CODECONNECTIONS
+        BuildSpec: infra/buildspec-pr-preview.yml
+        GitCloneDepth: 1
+        Location: !Sub "https://github.com/${GitHubOwner}/${GitHubRepository}.git"
+        ReportBuildStatus: false
+        Type: GITHUB
+      SourceVersion: master
+      TimeoutInMinutes: 30
+      Visibility: PRIVATE
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: !Ref ApplicationStackName
+
+  PreviewGitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ApplicationStackName}-pr-github-actions"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepository}@${GitHubRepositoryId}:pull_request"
+      Description: Allows this repository's pull requests to start the preview CodeBuild project.
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: StartPreviewBuild
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: StartAndObservePreviewBuild
+                Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt PreviewCodeBuildProject.Arn
+              - Sid: PassPreviewCodeBuildRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt PreviewCodeBuildRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: codebuild.amazonaws.com
+      Tags:
+        - Key: Environment
+          Value: preview
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: !Ref ApplicationStackName
+
+Outputs:
+  CodeBuildProjectArn:
+    Description: CodeBuild project invoked by the pull request workflow.
+    Value: !GetAtt PreviewCodeBuildProject.Arn
+  CodeBuildProjectName:
+    Description: CodeBuild project name used by GitHub Actions.
+    Value: !Ref PreviewCodeBuildProject
+  CodeBuildRoleArn:
+    Description: Service role assumed by CodeBuild.
+    Value: !GetAtt PreviewCodeBuildRole.Arn
+  GitHubActionsPreviewRoleArn:
+    Description: OIDC role assumed by pull request workflows.
+    Value: !GetAtt PreviewGitHubActionsRole.Arn
