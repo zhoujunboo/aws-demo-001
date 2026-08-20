@@ -105,14 +105,16 @@ export const appRouter = router({
 	profileIntroductions: router({
 		generate: publicProcedure
 			.input(z.object({ profileId: z.uuid() }))
-			.mutation(({ input }) =>
-				callProfileService(() => generateProfileIntroduction(input.profileId))
+			.mutation(({ ctx, input }) =>
+				callProfileService(() =>
+					generateProfileIntroduction(input.profileId, ctx.previewId)
+				)
 			),
 		get: publicProcedure
 			.input(z.object({ profileId: z.uuid() }))
-			.query(async ({ input }) => {
+			.query(async ({ ctx, input }) => {
 				try {
-					return await getProfileIntroduction(input.profileId);
+					return await getProfileIntroduction(input.profileId, ctx.previewId);
 				} catch (error) {
 					if (
 						error instanceof ProfileServiceError &&

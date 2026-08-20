@@ -7,16 +7,42 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+const PREVIEW_WORKER_NAME_PATTERN = /^github-profile-web-pr-[1-9][0-9]{0,4}$/;
+const productionFrontendUrl = new URL(env.CORS_ORIGIN);
+const workersDevSuffix = productionFrontendUrl.hostname.endsWith(".workers.dev")
+	? productionFrontendUrl.hostname.split(".").slice(1).join(".")
+	: null;
+
+const resolveCorsOrigin = (origin: string): string | null => {
+	if (origin === env.CORS_ORIGIN) {
+		return origin;
+	}
+
+	try {
+		const candidateUrl = new URL(origin);
+		const [workerName, ...hostnameSuffix] = candidateUrl.hostname.split(".");
+		const isPreviewOrigin =
+			candidateUrl.protocol === "https:" &&
+			candidateUrl.port === "" &&
+			workersDevSuffix !== null &&
+			PREVIEW_WORKER_NAME_PATTERN.test(workerName ?? "") &&
+			hostnameSuffix.join(".") === workersDevSuffix;
+		return isPreviewOrigin ? origin : null;
+	} catch {
+		return null;
+	}
+};
+
 const app = new Hono();
 
 app.use(logger());
 app.use(
 	"/*",
 	cors({
-		allowHeaders: ["Content-Type", "Authorization"],
+		allowHeaders: ["Content-Type", "Authorization", "X-Preview-PR"],
 		allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
 		credentials: true,
-		origin: env.CORS_ORIGIN,
+		origin: resolveCorsOrigin,
 	})
 );
 

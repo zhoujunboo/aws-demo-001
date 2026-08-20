@@ -2,6 +2,7 @@ import { env } from "@aws-demo-001/env/server";
 import { z } from "zod";
 
 const REQUEST_TIMEOUT_MS = 10_000;
+const PREVIEW_HEADER_NAME = "X-Preview-PR";
 
 const introductionSchema = z.object({
 	content: z.string().min(1),
@@ -23,15 +24,22 @@ export class ProfileServiceError extends Error {
 	}
 }
 
-const request = async (path: string, init?: RequestInit): Promise<unknown> => {
+const request = async (
+	path: string,
+	previewId?: string,
+	init?: RequestInit
+): Promise<unknown> => {
+	const headers = new Headers(init?.headers);
+	headers.set("Accept", "application/json");
+	if (previewId) {
+		headers.set(PREVIEW_HEADER_NAME, previewId);
+	}
+
 	let response: Response;
 	try {
 		response = await fetch(`${env.PROFILE_SERVICE_URL}${path}`, {
 			...init,
-			headers: {
-				Accept: "application/json",
-				...init?.headers,
-			},
+			headers,
 			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 		});
 	} catch (cause) {
@@ -54,17 +62,25 @@ const request = async (path: string, init?: RequestInit): Promise<unknown> => {
 	return body;
 };
 
-export const generateProfileIntroduction = async (profileId: string) => {
+export const generateProfileIntroduction = async (
+	profileId: string,
+	previewId?: string
+) => {
 	const response = await request(
 		`/v1/profiles/${encodeURIComponent(profileId)}/introduction`,
+		previewId,
 		{ method: "POST" }
 	);
 	return introductionSchema.parse(response);
 };
 
-export const getProfileIntroduction = async (profileId: string) => {
+export const getProfileIntroduction = async (
+	profileId: string,
+	previewId?: string
+) => {
 	const response = await request(
-		`/v1/profiles/${encodeURIComponent(profileId)}/introduction`
+		`/v1/profiles/${encodeURIComponent(profileId)}/introduction`,
+		previewId
 	);
 	return introductionSchema.parse(response);
 };
