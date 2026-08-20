@@ -1,0 +1,130 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - |
+        set -euo pipefail
+        if [[ ! "${PR_NUMBER:-}" =~ ^[1-9][0-9]{0,4}$ ]] || (( PR_NUMBER > 50000 )); then
+          echo "PR_NUMBER must be between 1 and 50000."
+          exit 1
+        fi
+        if [[ "${PREVIEW_ACTION:-}" != "deploy" && "${PREVIEW_ACTION:-}" != "delete" ]]; then
+          echo "PREVIEW_ACTION must be deploy or delete."
+          exit 1
+        fi
+        if [[ "${PREVIEW_ACTION}" == "deploy" && ! "${PR_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "PR_SHA must be a full lowercase Git commit SHA."
+          exit 1
+        fi
+        export PREVIEW_ID="pr-${PR_NUMBER}"
+        export PREVIEW_STACK_NAME="${PREVIEW_STACK_PREFIX}${PR_NUMBER}"
+        export ECR_REPOSITORY_NAME="${ECR_REPOSITORY_URI#*/}"
+        echo "Preview action: ${PREVIEW_ACTION}; preview: ${PREVIEW_ID}"
+  build:
+    on-failure: ABORT
+    commands:
+      - |
+        set -euo pipefail
+        export PREVIEW_ID="pr-${PR_NUMBER}"
+        export PREVIEW_STACK_NAME="${PREVIEW_STACK_PREFIX}${PR_NUMBER}"
+        export ECR_REPOSITORY_NAME="${ECR_REPOSITORY_URI#*/}"
+        if [[ "${PREVIEW_ACTION}" == "delete" ]]; then
+          if aws cloudformation describe-stacks --stack-name "${PREVIEW_STACK_NAME}" >/dev/null 2>&1; then
+            aws cloudformation delete-stack \
+              --stack-name "${PREVIEW_STACK_NAME}" \
+              --role-arn "${CLOUDFORMATION_EXECUTION_ROLE_ARN}"
+            aws cloudformation wait stack-delete-complete \
+              --stack-name "${PREVIEW_STACK_NAME}"
+          else
+            echo "Preview stack ${PREVIEW_STACK_NAME} is already absent."
+          fi
+
+          IMAGE_IDS="$(aws ecr list-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --filter tagStatus=TAGGED \
+            --query "imageIds[?starts_with(imageTag, 'pr-${PR_NUMBER}-')]" \
+            --output json)"
+          if [[ "${IMAGE_IDS}" != "[]" ]]; then
+            aws ecr batch-delete-image \
+              --repository-name "${ECR_REPOSITORY_NAME}" \
+              --image-ids "${IMAGE_IDS}" >/dev/null
+          fi
+          echo "Deleted preview resources for ${PREVIEW_ID}."
+          exit 0
+        fi
+
+        AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+        IMAGE_TAG="pr-${PR_NUMBER}-${PR_SHA:0:12}"
+        IMAGE_URI="${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+        aws ecr get-login-password | docker login \
+          --username AWS \
+          --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+        docker build \
+          --platform linux/amd64 \
+          --tag "${IMAGE_URI}" \
+          apps/profile-service
+        docker push "${IMAGE_URI}"
+
+        stack_output() {
+          aws cloudformation describe-stacks \
+            --stack-name "${APPLICATION_STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" \
+            --output text
+        }
+        stack_parameter() {
+          aws cloudformation describe-stacks \
+            --stack-name "${APPLICATION_STACK_NAME}" \
+            --query "Stacks[0].Parameters[?ParameterKey=='$1'].ParameterValue | [0]" \
+            --output text
+        }
+        stack_resource() {
+          aws cloudformation list-stack-resources \
+            --stack-name "${APPLICATION_STACK_NAME}" \
+            --query "StackResourceSummaries[?LogicalResourceId=='$1'].PhysicalResourceId | [0]" \
+            --output text
+        }
+
+        CLUSTER_NAME="$(stack_output ProfileServiceClusterName)"
+        CORS_ORIGIN="$(stack_parameter CorsOrigin)"
+        DATABASE_HOST="$(stack_output AuroraEndpoint)"
+        DATABASE_NAME="$(stack_parameter DatabaseName)"
+        DATABASE_SECRET_ARN="$(stack_output DatabaseSecretArn)"
+        LISTENER_ARN="$(stack_resource ProfileServiceListener)"
+        PRIVATE_SUBNET_A_ID="$(stack_output PrivateSubnetAId)"
+        PRIVATE_SUBNET_B_ID="$(stack_output PrivateSubnetBId)"
+        SERVICE_SECURITY_GROUP_ID="$(stack_resource ProfileServiceSecurityGroup)"
+        TASK_EXECUTION_ROLE_NAME="$(stack_resource ProfileServiceTaskExecutionRole)"
+        TASK_EXECUTION_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${TASK_EXECUTION_ROLE_NAME}"
+        VPC_ID="$(stack_output VpcId)"
+
+        aws cloudformation deploy \
+          --template-file infra/pr-preview-go.yaml \
+          --stack-name "${PREVIEW_STACK_NAME}" \
+          --role-arn "${CLOUDFORMATION_EXECUTION_ROLE_ARN}" \
+          --parameter-overrides \
+            ClusterName="${CLUSTER_NAME}" \
+            CorsOrigin="${CORS_ORIGIN}" \
+            DatabaseHost="${DATABASE_HOST}" \
+            DatabaseName="${DATABASE_NAME}" \
+            DatabasePort=5432 \
+            DatabaseSecretArn="${DATABASE_SECRET_ARN}" \
+            ImageUri="${IMAGE_URI}" \
+            ListenerArn="${LISTENER_ARN}" \
+            PrivateSubnetAId="${PRIVATE_SUBNET_A_ID}" \
+            PrivateSubnetBId="${PRIVATE_SUBNET_B_ID}" \
+            PreviewId="${PREVIEW_ID}" \
+            PreviewNumber="${PR_NUMBER}" \
+            ServiceSecurityGroupId="${SERVICE_SECURITY_GROUP_ID}" \
+            TaskExecutionRoleArn="${TASK_EXECUTION_ROLE_ARN}" \
+            VpcId="${VPC_ID}" \
+          --tags \
+            Environment=preview \
+            ManagedBy=CloudFormation \
+            PreviewId="${PREVIEW_ID}" \
+          --no-fail-on-empty-changeset
+        echo "Deployed Go preview stack ${PREVIEW_STACK_NAME} with image ${IMAGE_URI}."
