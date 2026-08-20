@@ -57,14 +57,29 @@ func buildIntroduction(profile Profile) string {
 		displayName = strings.TrimSpace(*profile.Name)
 	}
 
-	parts := []string{fmt.Sprintf("我是 %s（@%s）", displayName, profile.Login)}
+	var parts []string
 	if profile.Location != nil && strings.TrimSpace(*profile.Location) != "" {
-		parts = append(parts, "来自 "+strings.TrimSpace(*profile.Location))
+		parts = append(parts, fmt.Sprintf("你好，我是 %s（@%s），来自 %s", displayName, profile.Login, strings.TrimSpace(*profile.Location)))
+	} else {
+		parts = append(parts, fmt.Sprintf("你好，我是 %s（@%s）", displayName, profile.Login))
 	}
-	parts = append(parts, fmt.Sprintf("目前在 GitHub 维护 %d 个公开仓库，并有 %d 位关注者", profile.PublicRepos, profile.Followers))
+
+	if !profile.GitHubCreatedAt.IsZero() {
+		parts = append(parts, fmt.Sprintf("自 %d 年加入 GitHub 社区以来，始终保持对开源与技术创新的热情", profile.GitHubCreatedAt.Year()))
+	}
+
+	if profile.Following > 0 {
+		parts = append(parts, fmt.Sprintf("目前在平台维护了 %d 个公开仓库，收获了 %d 位同行的关注，同时也关注了 %d 位优秀的开发者", profile.PublicRepos, profile.Followers, profile.Following))
+	} else {
+		parts = append(parts, fmt.Sprintf("目前在平台维护了 %d 个公开仓库，拥有 %d 位关注者", profile.PublicRepos, profile.Followers))
+	}
+
 	if profile.Bio != nil && strings.TrimSpace(*profile.Bio) != "" {
-		parts = append(parts, "个人简介是：“"+strings.TrimSpace(*profile.Bio)+"”")
+		parts = append(parts, fmt.Sprintf("个人简介是：“%s”", strings.TrimSpace(*profile.Bio)))
 	}
+
+	parts = append(parts, "热衷于探索前沿技术与工程实践，持续构建高质量的软件项目，期待与大家交流合作、共同成长")
+
 	return strings.Join(parts, "。") + "。"
 }
 
