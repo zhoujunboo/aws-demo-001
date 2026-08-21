@@ -698,6 +698,76 @@ Resources:
       RawMessageDelivery: true
       TopicArn: !Ref ProfileEventsTopic
 
+  CanaryArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldCanaryArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ApiReadinessCanaryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+      Policies:
+        - PolicyName: RunApiReadinessCanary
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !GetAtt CanaryArtifactsBucket.Arn
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${CanaryArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action: s3:ListAllMyBuckets
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cwsyn-*"
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: CloudWatchSynthetics
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -754,6 +824,60 @@ Resources:
         SubnetIds:
           - !Ref PrivateSubnetA
           - !Ref PrivateSubnetB
+
+  ApiReadinessCanary:
+    Type: AWS::Synthetics::Canary
+    DependsOn: ApiFunction
+    Properties:
+      ArtifactS3Location: !Sub "s3://${CanaryArtifactsBucket}/api-readiness"
+      Code:
+        Handler: index.handler
+        Script: |
+          const synthetics = require("Synthetics");
+          const log = require("SyntheticsLogger");
+
+          const checkEndpoint = async (path) => {
+            const url = process.env.API_BASE_URL + path;
+            const page = await synthetics.getPage();
+            const response = await page.goto(url, {
+              timeout: 30000,
+              waitUntil: "domcontentloaded",
+            });
+            if (!response) {
+              throw new Error("No response received from " + path);
+            }
+            const status = response.status();
+            log.info(path + " returned HTTP " + status);
+            if (status < 200 || status >= 300) {
+              throw new Error(path + " returned HTTP " + status);
+            }
+          };
+
+          exports.handler = async () => {
+            await checkEndpoint("/healthz");
+            await checkEndpoint("/readyz");
+          };
+      ExecutionRoleArn: !GetAtt ApiReadinessCanaryRole.Arn
+      FailureRetentionPeriod: 31
+      Name: !Sub "${ProjectName}-${EnvironmentName}-api-readiness"
+      ProvisionedResourceCleanup: AUTOMATIC
+      RunConfig:
+        ActiveTracing: false
+        EnvironmentVariables:
+          API_BASE_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+        MemoryInMB: 1500
+        TimeoutInSeconds: 60
+      RuntimeVersion: syn-nodejs-puppeteer-17.0
+      Schedule:
+        DurationInSeconds: 0
+        Expression: rate(5 minutes)
+      StartCanaryAfterCreation: true
+      SuccessRetentionPeriod: 31
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   ProfileGenerationWorkerFunction:
     Type: AWS::Serverless::Function
@@ -823,12 +947,16 @@ Outputs:
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
   ApiFunctionName:
     Value: !Ref ApiFunction
+  ApiReadinessCanaryName:
+    Value: !Ref ApiReadinessCanary
   AuroraEndpoint:
     Value: !GetAtt DatabaseCluster.Endpoint.Address
   BastionInstanceId:
     Value: !Ref BastionHost
   BastionPublicIp:
     Value: !GetAtt BastionHost.PublicIp
+  CanaryArtifactsBucketName:
+    Value: !Ref CanaryArtifactsBucket
   DatabaseSecretArn:
     Value: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
   MigrationFunctionName:

@@ -1,6 +1,7 @@
 import { createContext } from "@aws-demo-001/api/context";
 import { appRouter } from "@aws-demo-001/api/routers/index";
 import { auth } from "@aws-demo-001/auth";
+import { checkDatabaseConnection } from "@aws-demo-001/db";
 import { env } from "@aws-demo-001/env/server";
 import { trpcServer } from "@hono/trpc-server";
 import { Hono } from "hono";
@@ -8,6 +9,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
 const PREVIEW_WORKER_NAME_PATTERN = /^github-profile-web-pr-[1-9][0-9]{0,4}$/;
+const PROFILE_SERVICE_HEALTH_TIMEOUT_MS = 5000;
 const productionFrontendUrl = new URL(env.CORS_ORIGIN);
 const workersDevSuffix = productionFrontendUrl.hostname.endsWith(".workers.dev")
 	? productionFrontendUrl.hostname.split(".").slice(1).join(".")
@@ -35,6 +37,18 @@ const resolveCorsOrigin = (origin: string): string | null => {
 
 const app = new Hono();
 
+const checkProfileService = async (): Promise<void> => {
+	const response = await fetch(`${env.PROFILE_SERVICE_URL}/healthz`, {
+		headers: { Accept: "application/json" },
+		signal: AbortSignal.timeout(PROFILE_SERVICE_HEALTH_TIMEOUT_MS),
+	});
+	if (!response.ok) {
+		throw new Error(
+			`Profile service health check returned ${response.status}.`
+		);
+	}
+};
+
 app.use(logger());
 app.use(
 	"/*",
@@ -47,6 +61,21 @@ app.use(
 );
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+app.get("/healthz", (c) => c.json({ status: "ok" }));
+
+app.get("/readyz", async (c) => {
+	try {
+		await Promise.all([checkDatabaseConnection(), checkProfileService()]);
+		return c.json({
+			checks: { database: "ok", profileService: "ok" },
+			status: "ready",
+		});
+	} catch (error) {
+		console.error("[Readiness Check] Dependency check failed", { error });
+		return c.json({ status: "not_ready" }, 503);
+	}
+});
 
 app.use(
 	"/trpc/*",

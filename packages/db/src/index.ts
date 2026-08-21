@@ -1,4 +1,5 @@
 import { env } from "@aws-demo-001/env/server";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 import { createDatabasePool } from "./connection";
@@ -40,3 +41,7 @@ export function createDb() {
 }
 
 export const db = createDb();
+
+export const checkDatabaseConnection = async (): Promise<void> => {
+	await db.execute(sql`select 1`);
+};
