@@ -107,3 +107,9 @@ aws-demo-001/
 - `pnpm run check`: Run Biome formatting and linting
 - `cd apps/docs && pnpm run dev`: Start documentation site
 - `cd apps/docs && pnpm run build`: Build documentation site
+
+## AWS Infrastructure
+
+The existing SAM deployment remains available in `template.yaml`. A parallel,
+three-stack AWS CDK implementation and a Chinese step-by-step guide live in
+[`infra/cdk`](infra/cdk/README.md).
