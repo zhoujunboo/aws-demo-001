@@ -102,16 +102,24 @@ jobs:
           PROFILE_SERVICE_IMAGE_URI="$ECR_REPOSITORY_URI:sha-$GITHUB_SHA"
           echo "PROFILE_SERVICE_IMAGE_URI=$PROFILE_SERVICE_IMAGE_URI" >> "$GITHUB_ENV"
 
-          aws ecr get-login-password --region "$AWS_REGION" |
-            docker login \
-              --username AWS \
-              --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+          ECR_REPOSITORY_NAME="${ECR_REPOSITORY_URI#*/}"
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --image-ids "imageTag=sha-$GITHUB_SHA" \
+            > /dev/null 2>&1; then
+            echo "Reusing existing image $PROFILE_SERVICE_IMAGE_URI"
+          else
+            aws ecr get-login-password --region "$AWS_REGION" |
+              docker login \
+                --username AWS \
+                --password-stdin "${ECR_REPOSITORY_URI%%/*}"
 
-          docker build \
-            --platform linux/amd64 \
-            --tag "$PROFILE_SERVICE_IMAGE_URI" \
-            apps/profile-service
-          docker push "$PROFILE_SERVICE_IMAGE_URI"
+            docker build \
+              --platform linux/amd64 \
+              --tag "$PROFILE_SERVICE_IMAGE_URI" \
+              apps/profile-service
+            docker push "$PROFILE_SERVICE_IMAGE_URI"
+          fi
 
       - name: Deploy SAM application
         run: |
