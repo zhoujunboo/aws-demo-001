@@ -7,8 +7,9 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getGithubUserByUsername } from "../github";
 import { protectedProcedure, publicProcedure, router } from "../index";
+import { PROFILE_GENERATION_EVENT_TYPE } from "../profile-generation-event";
+import { publishProfileGenerationEvent } from "../profile-generation-queue";
 import {
-	generateProfileIntroduction,
 	getProfileIntroduction,
 	ProfileServiceError,
 } from "../profile-service";
@@ -36,16 +37,6 @@ const toTRPCError = (error: unknown): TRPCError => {
 	const code = profileErrorCodes[error.statusCode] ?? "INTERNAL_SERVER_ERROR";
 
 	return new TRPCError({ cause: error, code, message: error.message });
-};
-
-const callProfileService = async <Result>(
-	operation: () => Promise<Result>
-): Promise<Result> => {
-	try {
-		return await operation();
-	} catch (error) {
-		throw toTRPCError(error);
-	}
 };
 
 export const appRouter = router({
@@ -105,11 +96,32 @@ export const appRouter = router({
 	profileIntroductions: router({
 		generate: publicProcedure
 			.input(z.object({ profileId: z.uuid() }))
-			.mutation(({ ctx, input }) =>
-				callProfileService(() =>
-					generateProfileIntroduction(input.profileId, ctx.previewId)
-				)
-			),
+			.mutation(async ({ ctx, input }) => {
+				const event = {
+					eventId: crypto.randomUUID(),
+					eventType: PROFILE_GENERATION_EVENT_TYPE,
+					previewId: ctx.previewId,
+					profileId: input.profileId,
+					requestedAt: new Date().toISOString(),
+				};
+
+				try {
+					await publishProfileGenerationEvent(event);
+				} catch (cause) {
+					// biome-ignore lint/style/useErrorCause: TRPCError receives cause through its options object.
+					throw new TRPCError({
+						cause,
+						code: "SERVICE_UNAVAILABLE",
+						message: "任务暂时无法进入队列，请稍后重试。",
+					});
+				}
+
+				return {
+					eventId: event.eventId,
+					requestedAt: event.requestedAt,
+					status: "queued" as const,
+				};
+			}),
 		get: publicProcedure
 			.input(z.object({ profileId: z.uuid() }))
 			.query(async ({ ctx, input }) => {

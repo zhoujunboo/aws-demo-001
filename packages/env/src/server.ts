@@ -6,6 +6,7 @@ export const env = createEnv({
 	emptyStringAsUndefined: true,
 	runtimeEnv: process.env,
 	server: {
+		AWS_REGION: z.string().min(1).default("us-east-1"),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 		CORS_ORIGIN: z.url(),
@@ -19,6 +20,7 @@ export const env = createEnv({
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),
+		PROFILE_EVENTS_TOPIC_ARN: z.string().startsWith("arn:").optional(),
 		PROFILE_SERVICE_URL: z.url().default("http://localhost:8080"),
 	},
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,

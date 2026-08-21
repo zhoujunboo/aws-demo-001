@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@aws-demo-001/config": "workspace:*",
+    "@types/aws-lambda": "^8.10.162",
     "@types/node": "catalog:",
     "tsdown": "^0.22.14",
     "tsx": "^4.23.1",

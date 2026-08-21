@@ -631,6 +631,73 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  ProfileEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Profile generation events
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+      TopicName: !Sub "${ProjectName}-${EnvironmentName}-profile-events"
+
+  ProfileGenerationDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ProjectName}-${EnvironmentName}-profile-generation-dlq"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileGenerationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-${EnvironmentName}-profile-generation-jobs"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProfileGenerationDeadLetterQueue.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+      VisibilityTimeout: 180
+
+  ProfileGenerationQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowProfileEventsTopic
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ProfileGenerationQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref ProfileEventsTopic
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Queues:
+        - !Ref ProfileGenerationQueue
+
+  ProfileGenerationSubscription:
+    Type: AWS::SNS::Subscription
+    DependsOn: ProfileGenerationQueuePolicy
+    Properties:
+      Endpoint: !GetAtt ProfileGenerationQueue.Arn
+      Protocol: sqs
+      RawMessageDelivery: true
+      TopicArn: !Ref ProfileEventsTopic
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -660,6 +727,7 @@ Resources:
           DATABASE_PORT: !GetAtt DatabaseCluster.Endpoint.Port
           DATABASE_USERNAME: !Ref DatabaseUsername
           NODE_ENV: production
+          PROFILE_EVENTS_TOPIC_ARN: !Ref ProfileEventsTopic
           PROFILE_SERVICE_URL: !Sub "http://${ProfileServiceLoadBalancer.DNSName}"
       Events:
         ProxyRoute:
@@ -676,6 +744,45 @@ Resources:
             Path: /
       FunctionName: !Sub "${ProjectName}-${EnvironmentName}-api"
       Handler: lambda.handler
+      Policies:
+        - AWSLambdaVPCAccessExecutionRole
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ProfileEventsTopic.TopicName
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+
+  ProfileGenerationWorkerFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: ProfileService
+    Properties:
+      CodeUri: apps/server/dist/lambda/
+      Description: Consumes queued profile generation tasks and calls the Go profile service.
+      Environment:
+        Variables:
+          BETTER_AUTH_SECRET: !Sub "{{resolve:secretsmanager:${BetterAuthSecret}:SecretString:secret}}"
+          BETTER_AUTH_URL: !Ref BetterAuthUrl
+          CORS_ORIGIN: !Ref CorsOrigin
+          DATABASE_HOST: !GetAtt DatabaseCluster.Endpoint.Address
+          DATABASE_NAME: !Ref DatabaseName
+          DATABASE_PASSWORD: !Sub "{{resolve:secretsmanager:${DatabaseCluster.MasterUserSecret.SecretArn}:SecretString:password}}"
+          DATABASE_PORT: !GetAtt DatabaseCluster.Endpoint.Port
+          DATABASE_USERNAME: !Ref DatabaseUsername
+          NODE_ENV: production
+          PROFILE_SERVICE_URL: !Sub "http://${ProfileServiceLoadBalancer.DNSName}"
+      Events:
+        ProfileGenerationQueueEvent:
+          Type: SQS
+          Properties:
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            Queue: !GetAtt ProfileGenerationQueue.Arn
+      FunctionName: !Sub "${ProjectName}-${EnvironmentName}-profile-generation-worker"
+      Handler: profile-generation-worker.handler
       Policies:
         - AWSLambdaVPCAccessExecutionRole
       VpcConfig:
@@ -726,6 +833,14 @@ Outputs:
     Value: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
   MigrationFunctionName:
     Value: !Ref MigrationFunction
+  ProfileEventsTopicArn:
+    Value: !Ref ProfileEventsTopic
+  ProfileGenerationDeadLetterQueueUrl:
+    Value: !Ref ProfileGenerationDeadLetterQueue
+  ProfileGenerationQueueUrl:
+    Value: !Ref ProfileGenerationQueue
+  ProfileGenerationWorkerFunctionName:
+    Value: !Ref ProfileGenerationWorkerFunction
   ProfileServiceClusterName:
     Value: !Ref ProfileServiceCluster
   ProfileServiceLoadBalancerDnsName:

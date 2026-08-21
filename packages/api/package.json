@@ -14,6 +14,7 @@
     "@aws-demo-001/auth": "workspace:*",
     "@aws-demo-001/db": "workspace:*",
     "@aws-demo-001/env": "workspace:*",
+    "@aws-sdk/client-sns": "^3.1115.0",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "dotenv": "catalog:",

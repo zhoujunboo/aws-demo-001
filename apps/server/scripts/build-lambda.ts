@@ -198,7 +198,11 @@ const walkDir = async (
 const main = async () => {
   console.log("🔨 Building Lambda bundle with tsdown...");
   await build({
-    entry: ["./src/lambda.ts", "./src/migration.ts"],
+    entry: [
+      "./src/lambda.ts",
+      "./src/migration.ts",
+      "./src/profile-generation-worker.ts",
+    ],
     format: "esm",
     outDir: "./dist/lambda",
     clean: true,

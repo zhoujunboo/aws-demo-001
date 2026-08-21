@@ -300,17 +300,13 @@ interface ProfileCardProps {
 }
 
 function ProfileCard({ deleteProfile, isDeleting, profile }: ProfileCardProps) {
-	const introductionQueryKey = trpc.profileIntroductions.get.queryKey({
-		profileId: profile.id,
-	});
 	const introduction = useQuery(
 		trpc.profileIntroductions.get.queryOptions({ profileId: profile.id })
 	);
 	const generateIntroduction = useMutation(
 		trpc.profileIntroductions.generate.mutationOptions({
-			onSuccess: (result) => {
-				queryClient.setQueryData(introductionQueryKey, result);
-				toast.success(`已生成 @${profile.login} 的个人简介`);
+			onSuccess: () => {
+				toast.success("任务已进入队列，稍后刷新查看结果");
 			},
 		})
 	);
@@ -458,7 +454,7 @@ function ProfileCard({ deleteProfile, isDeleting, profile }: ProfileCardProps) {
 					) : (
 						<Sparkles className="size-4 text-purple-500" />
 					)}
-					{generateIntroduction.isPending ? "正在生成简介..." : "生成简介"}
+					{generateIntroduction.isPending ? "正在提交任务..." : "生成简介"}
 				</Button>
 			</CardContent>
 		</Card>
