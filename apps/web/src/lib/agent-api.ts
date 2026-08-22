@@ -39,6 +39,14 @@ export type Agent = z.infer<typeof agentSchema>;
 export type AgentExecution = z.infer<typeof executionSchema>;
 export type AgentTask = z.infer<typeof taskSchema>;
 
+export interface RegisterAgentInput {
+	capabilities: string[];
+	description: string;
+	endpointUrl: string;
+	id: string;
+	name: string;
+}
+
 const request = async <Schema extends z.ZodType>(
 	path: string,
 	schema: Schema,
@@ -65,6 +73,15 @@ export const listAgents = async (): Promise<Agent[]> => {
 	const response = await request("/v1/agents", agentsResponseSchema);
 	return response.agents;
 };
+
+export const registerAgent = async (
+	input: RegisterAgentInput
+): Promise<Agent> =>
+	request("/v1/agents", agentSchema, {
+		body: JSON.stringify(input),
+		headers: { "Content-Type": "application/json" },
+		method: "POST",
+	});
 
 export const createAgentTask = async (input: {
 	description: string;

@@ -14,6 +14,8 @@ import (
 
 const maxTaskRequestBytes = 45_000
 
+const maxAgentRegistrationRequestBytes = 8_000
+
 type Server struct {
 	allowedOrigin string
 	agents        *agent.Service
@@ -26,11 +28,47 @@ func NewServer(profiles *profile.Service, agents *agent.Service, allowedOrigin s
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /v1/agents", server.listAgents)
+	mux.HandleFunc("POST /v1/agents", server.registerAgent)
 	mux.HandleFunc("POST /v1/tasks", server.createTask)
 	mux.HandleFunc("GET /v1/tasks/{taskId}", server.getTask)
 	mux.HandleFunc("GET /v1/profiles/{profileId}/introduction", server.getIntroduction)
 	mux.HandleFunc("POST /v1/profiles/{profileId}/introduction", server.generateIntroduction)
 	return server.withMiddleware(mux)
+}
+
+func (server *Server) registerAgent(writer http.ResponseWriter, request *http.Request) {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxAgentRegistrationRequestBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var input agent.RegisterAgentInput
+	if err := decoder.Decode(&input); err != nil {
+		status := http.StatusBadRequest
+		if errors.As(err, new(*http.MaxBytesError)) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeError(writer, status, "Agent 注册参数无效")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeError(writer, http.StatusBadRequest, "请求只能包含一个 JSON 对象")
+		return
+	}
+
+	result, err := server.agents.RegisterAgent(request.Context(), input)
+	if err == nil {
+		writeJSON(writer, http.StatusCreated, result)
+		return
+	}
+	switch {
+	case errors.Is(err, agent.ErrInvalidAgent):
+		writeError(writer, http.StatusBadRequest, "请检查 Agent ID、描述、能力标签和 HTTPS 调用地址")
+	case errors.Is(err, agent.ErrAgentConflict):
+		writeError(writer, http.StatusConflict, "Agent ID 或调用地址已注册")
+	case errors.Is(err, agent.ErrVectorUnavailable):
+		writeError(writer, http.StatusServiceUnavailable, "向量服务暂时不可用，Agent 未注册")
+	default:
+		server.internalError(writer, request, err)
+	}
 }
 
 func (server *Server) listAgents(writer http.ResponseWriter, request *http.Request) {

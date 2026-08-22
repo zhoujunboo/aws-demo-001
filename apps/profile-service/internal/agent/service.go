@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,32 +15,117 @@ import (
 )
 
 const (
-	maxDescriptionLength = 8_000
-	maxResumeLength      = 30_000
+	maxAgentDescriptionLength = 1_000
+	maxAgentNameLength        = 80
+	maxCapabilities           = 12
+	maxDescriptionLength      = 8_000
+	maxResumeLength           = 30_000
 )
 
+var agentIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$`)
+
 var (
-	ErrInvalidTask = errors.New("invalid agent task")
-	ErrNoAgents    = errors.New("no active agents")
+	ErrInvalidAgent      = errors.New("invalid agent registration")
+	ErrInvalidTask       = errors.New("invalid agent task")
+	ErrNoAgents          = errors.New("no active agents")
+	ErrVectorUnavailable = errors.New("agent embedding is unavailable")
 )
 
 type Service struct {
+	embedder   EmbeddingProvider
 	matcher    Matcher
 	now        func() time.Time
 	repository Repository
 	runner     Runner
 }
 
-func NewService(repository Repository, runner Runner, matchers ...Matcher) *Service {
+func NewService(
+	repository Repository,
+	runner Runner,
+	matcher Matcher,
+	embedder EmbeddingProvider,
+) *Service {
 	selectedMatcher := Matcher(KeywordMatcher{})
-	if len(matchers) > 0 && matchers[0] != nil {
-		selectedMatcher = matchers[0]
+	if matcher != nil {
+		selectedMatcher = matcher
 	}
-	return &Service{matcher: selectedMatcher, now: time.Now, repository: repository, runner: runner}
+	return &Service{
+		embedder: embedder, matcher: selectedMatcher, now: time.Now,
+		repository: repository, runner: runner,
+	}
 }
 
 func (service *Service) ListAgents(ctx context.Context) ([]Agent, error) {
 	return service.repository.ListAgents(ctx)
+}
+
+func (service *Service) RegisterAgent(ctx context.Context, input RegisterAgentInput) (Agent, error) {
+	registeredAgent, err := validateAgentRegistration(input, service.now().UTC())
+	if err != nil {
+		return Agent{}, err
+	}
+	if service.embedder == nil {
+		return Agent{}, ErrVectorUnavailable
+	}
+
+	sourceText := buildAgentSourceText(registeredAgent)
+	embeddings, err := service.embedder.Embed(ctx, []string{sourceText})
+	if err != nil {
+		return Agent{}, fmt.Errorf("%w: %v", ErrVectorUnavailable, err)
+	}
+	if len(embeddings) != 1 || len(embeddings[0]) == 0 {
+		return Agent{}, ErrVectorUnavailable
+	}
+	embedding := AgentEmbedding{
+		AgentID:     registeredAgent.ID,
+		ContentHash: fmt.Sprintf("%x", sha256.Sum256([]byte(sourceText))),
+		Embedding:   embeddings[0],
+		Model:       service.embedder.EmbeddingModel(),
+		SourceText:  sourceText,
+	}
+	if err := service.repository.CreateAgentWithEmbedding(ctx, registeredAgent, embedding); err != nil {
+		return Agent{}, err
+	}
+	return registeredAgent, nil
+}
+
+func validateAgentRegistration(input RegisterAgentInput, now time.Time) (Agent, error) {
+	id := strings.TrimSpace(input.ID)
+	name := strings.TrimSpace(input.Name)
+	description := strings.TrimSpace(input.Description)
+	endpointURL := strings.TrimSpace(input.EndpointURL)
+	parsedURL, err := url.Parse(endpointURL)
+	isLocalHTTP := err == nil && parsedURL.Scheme == "http" &&
+		(parsedURL.Hostname() == "localhost" || parsedURL.Hostname() == "127.0.0.1" || parsedURL.Hostname() == "::1")
+	isValidEndpoint := err == nil && parsedURL.Host != "" && (parsedURL.Scheme == "https" || isLocalHTTP)
+	if !agentIDPattern.MatchString(id) || utf8.RuneCountInString(name) < 2 ||
+		utf8.RuneCountInString(name) > maxAgentNameLength || utf8.RuneCountInString(description) < 10 ||
+		utf8.RuneCountInString(description) > maxAgentDescriptionLength || !isValidEndpoint {
+		return Agent{}, ErrInvalidAgent
+	}
+
+	capabilities := make([]string, 0, len(input.Capabilities))
+	seenCapabilities := make(map[string]struct{}, len(input.Capabilities))
+	for _, capability := range input.Capabilities {
+		trimmedCapability := strings.TrimSpace(capability)
+		normalizedCapability := strings.ToLower(trimmedCapability)
+		if trimmedCapability == "" || utf8.RuneCountInString(trimmedCapability) > 40 {
+			return Agent{}, ErrInvalidAgent
+		}
+		if _, exists := seenCapabilities[normalizedCapability]; exists {
+			continue
+		}
+		seenCapabilities[normalizedCapability] = struct{}{}
+		capabilities = append(capabilities, trimmedCapability)
+	}
+	if len(capabilities) == 0 || len(capabilities) > maxCapabilities {
+		return Agent{}, ErrInvalidAgent
+	}
+
+	return Agent{
+		Capabilities: capabilities, CreatedAt: now, Description: description,
+		EndpointURL: endpointURL, ID: id, Name: name, Status: "active", UpdatedAt: now,
+	}, nil
 }
 
 func (service *Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {

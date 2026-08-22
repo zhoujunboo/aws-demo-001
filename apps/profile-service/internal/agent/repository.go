@@ -9,13 +9,18 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrTaskNotFound = errors.New("agent task not found")
+var (
+	ErrAgentConflict = errors.New("agent id or endpoint already exists")
+	ErrTaskNotFound  = errors.New("agent task not found")
+)
 
 type Repository interface {
 	CompleteTask(context.Context, string, string) error
+	CreateAgentWithEmbedding(context.Context, Agent, AgentEmbedding) error
 	CreateTask(context.Context, Task) error
 	GetTask(context.Context, string) (Task, error)
 	ListAgentEmbeddingMetadata(context.Context) (map[string]EmbeddingMetadata, error)
@@ -23,6 +28,53 @@ type Repository interface {
 	SearchAgentsByEmbedding(context.Context, string, []float64, int) ([]VectorCandidate, error)
 	UpdateExecution(context.Context, Execution) error
 	UpsertAgentEmbeddings(context.Context, []AgentEmbedding) error
+}
+
+func (repository *PostgresRepository) CreateAgentWithEmbedding(
+	ctx context.Context,
+	registeredAgent Agent,
+	embedding AgentEmbedding,
+) error {
+	vector, err := vectorLiteral(embedding.Embedding)
+	if err != nil {
+		return err
+	}
+	transaction, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin agent registration transaction: %w", err)
+	}
+	defer transaction.Rollback(ctx)
+
+	_, err = transaction.Exec(ctx, `
+		INSERT INTO agent (
+			capabilities, created_at, description, endpoint_url, id, name, status, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, registeredAgent.Capabilities, registeredAgent.CreatedAt, registeredAgent.Description,
+		registeredAgent.EndpointURL, registeredAgent.ID, registeredAgent.Name,
+		registeredAgent.Status, registeredAgent.UpdatedAt)
+	if err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+			return ErrAgentConflict
+		}
+		return fmt.Errorf("create agent: %w", err)
+	}
+
+	_, err = transaction.Exec(ctx, `
+		INSERT INTO agent_embedding (
+			agent_id, content_hash, embedding, embedding_model, source_text
+		)
+		VALUES ($1, $2, $3::vector, $4, $5)
+	`, embedding.AgentID, embedding.ContentHash, vector, embedding.Model, embedding.SourceText)
+	if err != nil {
+		return fmt.Errorf("create agent embedding: %w", err)
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit agent registration transaction: %w", err)
+	}
+	return nil
 }
 
 type PostgresRepository struct {

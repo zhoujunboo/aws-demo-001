@@ -60,6 +60,7 @@ func run(logger *slog.Logger) error {
 	agentRepository := agent.NewPostgresRepository(pool)
 	agentClient := agent.NewClient(settings.AgentAPIKey, settings.AgentTimeout)
 	var agentMatcher agent.Matcher = agent.KeywordMatcher{}
+	var embeddingProvider agent.EmbeddingProvider
 	if settings.MatchingAI.Enabled {
 		matchingClient, matchingClientErr := agent.NewMatchingClient(
 			settings.MatchingAI.BaseURL,
@@ -73,13 +74,14 @@ func run(logger *slog.Logger) error {
 			return matchingClientErr
 		}
 		agentMatcher = agent.NewVectorRerankMatcher(agentRepository, matchingClient, matchingClient)
+		embeddingProvider = matchingClient
 		logger.Info(
 			"vector matching enabled",
 			"embedding_model", settings.MatchingAI.EmbeddingModel,
 			"rerank_model", settings.MatchingAI.RerankModel,
 		)
 	}
-	agentService := agent.NewService(agentRepository, agentClient, agentMatcher)
+	agentService := agent.NewService(agentRepository, agentClient, agentMatcher, embeddingProvider)
 
 	server := &http.Server{
 		Addr:              settings.Address,

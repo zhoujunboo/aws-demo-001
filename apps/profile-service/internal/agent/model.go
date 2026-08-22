@@ -18,6 +18,14 @@ type CreateTaskInput struct {
 	Resume      *string `json:"resume,omitempty"`
 }
 
+type RegisterAgentInput struct {
+	Capabilities []string `json:"capabilities"`
+	Description  string   `json:"description"`
+	EndpointURL  string   `json:"endpointUrl"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+}
+
 type Task struct {
 	CompletedAt *time.Time  `json:"completedAt"`
 	CreatedAt   time.Time   `json:"createdAt"`

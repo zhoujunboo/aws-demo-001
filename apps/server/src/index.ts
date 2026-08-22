@@ -104,6 +104,7 @@ app.get("/readyz", async (c) => {
 });
 
 app.get("/v1/agents", (c) => proxyProfileService(c.req.raw, "/v1/agents"));
+app.post("/v1/agents", (c) => proxyProfileService(c.req.raw, "/v1/agents"));
 app.post("/v1/tasks", (c) => proxyProfileService(c.req.raw, "/v1/tasks"));
 app.get("/v1/tasks/:taskId", (c) =>
 	proxyProfileService(
