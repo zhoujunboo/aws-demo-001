@@ -5,10 +5,14 @@ const apiBaseUrl = env.VITE_SERVER_URL.replace(/\/$/, "");
 
 const agentSchema = z.object({
 	capabilities: z.array(z.string()),
+	createdAt: z.string(),
 	description: z.string(),
+	embeddingModel: z.string().optional(),
 	id: z.string(),
 	name: z.string(),
 	status: z.string(),
+	updatedAt: z.string(),
+	vectorIndexed: z.boolean().default(false),
 });
 
 const executionSchema = z.object({

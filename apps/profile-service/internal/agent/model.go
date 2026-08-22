@@ -3,14 +3,16 @@ package agent
 import "time"
 
 type Agent struct {
-	Capabilities []string  `json:"capabilities"`
-	CreatedAt    time.Time `json:"createdAt"`
-	Description  string    `json:"description"`
-	EndpointURL  string    `json:"-"`
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Status       string    `json:"status"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	Capabilities   []string  `json:"capabilities"`
+	CreatedAt      time.Time `json:"createdAt"`
+	Description    string    `json:"description"`
+	EmbeddingModel *string   `json:"embeddingModel,omitempty"`
+	EndpointURL    string    `json:"-"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Status         string    `json:"status"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	VectorIndexed  bool      `json:"vectorIndexed"`
 }
 
 type CreateTaskInput struct {

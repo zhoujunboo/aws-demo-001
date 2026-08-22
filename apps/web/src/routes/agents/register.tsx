@@ -95,9 +95,13 @@ function RegistrationSuccess({ agent }: { agent: Agent }) {
 				</div>
 			</CardContent>
 			<CardFooter className="mt-4">
-				<Button render={<Link to="/" />} variant="outline">
+				<Button
+					nativeButton={false}
+					render={<Link to="/agents" />}
+					variant="outline"
+				>
 					<ArrowLeft data-icon="inline-start" />
-					返回任务工作台
+					返回 Agent 列表
 				</Button>
 			</CardFooter>
 		</Card>

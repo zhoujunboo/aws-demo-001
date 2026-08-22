@@ -87,10 +87,14 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 
 func (repository *PostgresRepository) ListAgents(ctx context.Context) ([]Agent, error) {
 	rows, err := repository.pool.Query(ctx, `
-		SELECT capabilities, created_at, description, endpoint_url, id, name, status, updated_at
+		SELECT agent.capabilities, agent.created_at, agent.description,
+		       agent_embedding.embedding_model, agent.endpoint_url, agent.id,
+		       agent.name, agent.status, agent.updated_at,
+		       agent_embedding.agent_id IS NOT NULL AS vector_indexed
 		FROM agent
-		WHERE status = 'active'
-		ORDER BY id
+		LEFT JOIN agent_embedding ON agent_embedding.agent_id = agent.id
+		WHERE agent.status = 'active'
+		ORDER BY agent.id
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -102,8 +106,9 @@ func (repository *PostgresRepository) ListAgents(ctx context.Context) ([]Agent, 
 		var storedAgent Agent
 		if err := rows.Scan(
 			&storedAgent.Capabilities, &storedAgent.CreatedAt, &storedAgent.Description,
-			&storedAgent.EndpointURL, &storedAgent.ID, &storedAgent.Name,
-			&storedAgent.Status, &storedAgent.UpdatedAt,
+			&storedAgent.EmbeddingModel, &storedAgent.EndpointURL, &storedAgent.ID,
+			&storedAgent.Name, &storedAgent.Status, &storedAgent.UpdatedAt,
+			&storedAgent.VectorIndexed,
 		); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}

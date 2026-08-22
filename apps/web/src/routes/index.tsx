@@ -23,19 +23,16 @@ import {
 	FieldGroup,
 	FieldLabel,
 } from "@aws-demo-001/ui/components/field";
-import { Skeleton } from "@aws-demo-001/ui/components/skeleton";
 import { Textarea } from "@aws-demo-001/ui/components/textarea";
 import { cn } from "@aws-demo-001/ui/lib/utils";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-	Bot,
 	Check,
 	CircleAlert,
 	Clock3,
 	FileText,
 	Loader2,
-	RefreshCw,
 	Send,
 	Sparkles,
 	Users,
@@ -43,11 +40,9 @@ import {
 import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
 import { toast } from "sonner";
 import {
-	type Agent,
 	type AgentExecution,
 	type AgentTask,
 	createAgentTask,
-	listAgents,
 } from "@/lib/agent-api";
 
 export const Route = createFileRoute("/")({
@@ -79,89 +74,6 @@ const getStatusVariant = (
 	}
 	return "outline";
 };
-
-function AgentCard({ agent }: { agent: Agent }) {
-	return (
-		<Card size="sm">
-			<CardHeader>
-				<CardTitle className="flex items-center gap-2">
-					<Bot aria-hidden="true" />
-					{agent.name}
-				</CardTitle>
-				<CardDescription>{agent.description}</CardDescription>
-				<CardAction>
-					<Badge variant={getStatusVariant(agent.status)}>
-						{statusLabels[agent.status] ?? agent.status}
-					</Badge>
-				</CardAction>
-			</CardHeader>
-			<CardContent className="flex flex-wrap gap-1.5">
-				{agent.capabilities.slice(0, 4).map((capability) => (
-					<Badge key={capability} variant="outline">
-						{capability}
-					</Badge>
-				))}
-			</CardContent>
-		</Card>
-	);
-}
-
-function AgentsPanel() {
-	const agents = useQuery({
-		queryFn: listAgents,
-		queryKey: ["agents"],
-		staleTime: 60_000,
-	});
-	const handleRetry = useCallback(() => {
-		agents.refetch();
-	}, [agents.refetch]);
-
-	return (
-		<section aria-labelledby="agents-title" className="flex flex-col gap-3">
-			<div>
-				<h2 className="font-medium text-sm" id="agents-title">
-					平台 Agent
-				</h2>
-				<p className="text-muted-foreground text-xs">
-					平台根据任务描述匹配，并同时调用最合适的三个 Agent。
-				</p>
-			</div>
-
-			{agents.isPending ? (
-				<div className="flex flex-col gap-3">
-					{["agent-one", "agent-two", "agent-three"].map((key) => (
-						<Card key={key} size="sm">
-							<CardHeader>
-								<Skeleton className="h-4 w-32" />
-								<Skeleton className="h-3 w-full" />
-							</CardHeader>
-						</Card>
-					))}
-				</div>
-			) : null}
-
-			{agents.isError ? (
-				<Empty className="border">
-					<EmptyHeader>
-						<EmptyMedia variant="icon">
-							<CircleAlert />
-						</EmptyMedia>
-						<EmptyTitle>Agent 列表加载失败</EmptyTitle>
-						<EmptyDescription>{agents.error.message}</EmptyDescription>
-					</EmptyHeader>
-					<Button onClick={handleRetry} size="sm" variant="outline">
-						<RefreshCw data-icon="inline-start" />
-						重新加载
-					</Button>
-				</Empty>
-			) : null}
-
-			{agents.data?.map((agent) => (
-				<AgentCard agent={agent} key={agent.id} />
-			))}
-		</section>
-	);
-}
 
 function TaskComposer({
 	onTaskCreated,
@@ -434,7 +346,7 @@ function AgentMarketplacePage() {
 				<header className="flex max-w-3xl flex-col gap-3">
 					<Badge className="w-fit" variant="outline">
 						<Users data-icon="inline-start" />
-						Agent Marketplace MVP
+						Agent Marketplace
 					</Badge>
 					<h1 className="font-semibold text-3xl tracking-tight md:text-4xl">
 						一个需求，比较三个 Agent 的结果
@@ -444,9 +356,8 @@ function AgentMarketplacePage() {
 					</p>
 				</header>
 
-				<div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
+				<div className="max-w-4xl">
 					<TaskComposer onTaskCreated={setTask} />
-					<AgentsPanel />
 				</div>
 
 				<ResultsSection key={task?.id ?? "empty"} task={task} />

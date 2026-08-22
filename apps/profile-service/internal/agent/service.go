@@ -86,6 +86,8 @@ func (service *Service) RegisterAgent(ctx context.Context, input RegisterAgentIn
 	if err := service.repository.CreateAgentWithEmbedding(ctx, registeredAgent, embedding); err != nil {
 		return Agent{}, err
 	}
+	registeredAgent.EmbeddingModel = &embedding.Model
+	registeredAgent.VectorIndexed = true
 	return registeredAgent, nil
 }
 
