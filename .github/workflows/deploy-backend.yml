@@ -30,6 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  AGENT_API_SECRET_ARN: arn:aws:secretsmanager:us-east-1:492646066759:secret:github-profile/dev/agent-api-H4nEJq
   AWS_REGION: us-east-1
   AURORA_MAX_CAPACITY: "1"
   AURORA_MIN_CAPACITY: "0.5"
@@ -148,6 +149,7 @@ jobs:
               CorsOrigin="$CORS_ORIGIN" \
               BetterAuthUrl="$BETTER_AUTH_URL" \
               ProfileServiceImageUri="$PROFILE_SERVICE_IMAGE_URI" \
+              AgentApiSecretArn="$AGENT_API_SECRET_ARN" \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
 

@@ -6,6 +6,9 @@ import { createDatabasePool } from "./connection";
 import {
 	account,
 	accountRelations,
+	agent,
+	agentExecution,
+	agentTask,
 	githubProfile,
 	profileIntroduction,
 	session,
@@ -18,6 +21,9 @@ import {
 const schema = {
 	account,
 	accountRelations,
+	agent,
+	agentExecution,
+	agentTask,
 	githubProfile,
 	profileIntroduction,
 	session,

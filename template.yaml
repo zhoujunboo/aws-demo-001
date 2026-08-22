@@ -65,6 +65,10 @@ Parameters:
   ProfileServiceImageUri:
     Type: String
     Description: Versioned ECR image URI for the Go profile service, including its tag or digest.
+  AgentApiSecretArn:
+    Type: String
+    AllowedPattern: "^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
+    Description: ARN of the secret containing the shared Cloudflare Agent API key.
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -461,14 +465,16 @@ Resources:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
       PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
       Policies:
-        - PolicyName: ReadAuroraMasterSecret
+        - PolicyName: ReadRuntimeSecrets
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
-                Resource: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+                Resource:
+                  - !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+                  - !Ref AgentApiSecretArn
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -498,6 +504,8 @@ Resources:
               Name: http-8080-tcp
               Protocol: tcp
           Environment:
+            - Name: AGENT_TIMEOUT_SECONDS
+              Value: "25"
             - Name: CORS_ORIGIN
               Value: !Ref CorsOrigin
             - Name: DATABASE_HOST
@@ -513,6 +521,8 @@ Resources:
             - Name: PORT
               Value: "8080"
           Secrets:
+            - Name: AGENT_API_KEY
+              ValueFrom: !Ref AgentApiSecretArn
             - Name: DATABASE_PASSWORD
               ValueFrom: !Sub "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
             - Name: DATABASE_USERNAME

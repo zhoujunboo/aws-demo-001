@@ -10,6 +10,7 @@ import { logger } from "hono/logger";
 
 const PREVIEW_WORKER_NAME_PATTERN = /^github-profile-web-pr-[1-9][0-9]{0,4}$/;
 const PROFILE_SERVICE_HEALTH_TIMEOUT_MS = 5000;
+const PROFILE_SERVICE_TASK_TIMEOUT_MS = 28_000;
 const productionFrontendUrl = new URL(env.CORS_ORIGIN);
 const workersDevSuffix = productionFrontendUrl.hostname.endsWith(".workers.dev")
 	? productionFrontendUrl.hostname.split(".").slice(1).join(".")
@@ -49,6 +50,31 @@ const checkProfileService = async (): Promise<void> => {
 	}
 };
 
+const proxyProfileService = async (
+	request: Request,
+	path: string
+): Promise<Response> => {
+	const headers = new Headers();
+	headers.set("Accept", "application/json");
+	const contentType = request.headers.get("Content-Type");
+	if (contentType) {
+		headers.set("Content-Type", contentType);
+	}
+
+	const body =
+		request.method === "GET" ? undefined : await request.arrayBuffer();
+	const response = await fetch(`${env.PROFILE_SERVICE_URL}${path}`, {
+		body,
+		headers,
+		method: request.method,
+		signal: AbortSignal.timeout(PROFILE_SERVICE_TASK_TIMEOUT_MS),
+	});
+	return new Response(response.body, {
+		headers: response.headers,
+		status: response.status,
+	});
+};
+
 app.use(logger());
 app.use(
 	"/*",
@@ -76,6 +102,15 @@ app.get("/readyz", async (c) => {
 		return c.json({ status: "not_ready" }, 503);
 	}
 });
+
+app.get("/v1/agents", (c) => proxyProfileService(c.req.raw, "/v1/agents"));
+app.post("/v1/tasks", (c) => proxyProfileService(c.req.raw, "/v1/tasks"));
+app.get("/v1/tasks/:taskId", (c) =>
+	proxyProfileService(
+		c.req.raw,
+		`/v1/tasks/${encodeURIComponent(c.req.param("taskId"))}`
+	)
+);
 
 app.use(
 	"/trpc/*",

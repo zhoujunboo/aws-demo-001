@@ -15,6 +15,13 @@
       "when": 1787035227923,
       "tag": "0001_loud_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787374785212,
+      "tag": "0002_agent_marketplace",
+      "breakpoints": true
     }
   ]
 }

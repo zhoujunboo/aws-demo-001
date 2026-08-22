@@ -6,9 +6,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
+	AgentAPIKey   string
+	AgentTimeout  time.Duration
 	Address       string
 	AllowedOrigin string
 	DatabaseURL   string
@@ -19,9 +22,19 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	agentAPIKey := strings.TrimSpace(os.Getenv("AGENT_API_KEY"))
+	if agentAPIKey == "" {
+		return Config{}, fmt.Errorf("AGENT_API_KEY is required")
+	}
+	agentTimeoutSeconds, err := PositiveInt("AGENT_TIMEOUT_SECONDS", 60)
+	if err != nil {
+		return Config{}, err
+	}
 
 	port := valueOrDefault("PORT", "8080")
 	return Config{
+		AgentAPIKey:   agentAPIKey,
+		AgentTimeout:  time.Duration(agentTimeoutSeconds) * time.Second,
 		Address:       ":" + port,
 		AllowedOrigin: valueOrDefault("CORS_ORIGIN", "http://localhost:3001"),
 		DatabaseURL:   databaseURL,

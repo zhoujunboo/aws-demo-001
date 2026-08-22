@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/junbozhou88/aws-demo-001/profile-service/internal/agent"
 	"github.com/junbozhou88/aws-demo-001/profile-service/internal/config"
 	"github.com/junbozhou88/aws-demo-001/profile-service/internal/httpapi"
 	"github.com/junbozhou88/aws-demo-001/profile-service/internal/profile"
@@ -56,13 +57,16 @@ func run(logger *slog.Logger) error {
 
 	repository := profile.NewPostgresRepository(pool)
 	profileService := profile.NewService(repository)
+	agentRepository := agent.NewPostgresRepository(pool)
+	agentClient := agent.NewClient(settings.AgentAPIKey, settings.AgentTimeout)
+	agentService := agent.NewService(agentRepository, agentClient)
 
 	server := &http.Server{
 		Addr:              settings.Address,
-		Handler:           httpapi.NewServer(profileService, settings.AllowedOrigin, logger),
+		Handler:           httpapi.NewServer(profileService, agentService, settings.AllowedOrigin, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      settings.AgentTimeout + 15*time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
