@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,8 +18,11 @@ type Repository interface {
 	CompleteTask(context.Context, string, string) error
 	CreateTask(context.Context, Task) error
 	GetTask(context.Context, string) (Task, error)
+	ListAgentEmbeddingMetadata(context.Context) (map[string]EmbeddingMetadata, error)
 	ListAgents(context.Context) ([]Agent, error)
+	SearchAgentsByEmbedding(context.Context, string, []float64, int) ([]VectorCandidate, error)
 	UpdateExecution(context.Context, Execution) error
+	UpsertAgentEmbeddings(context.Context, []AgentEmbedding) error
 }
 
 type PostgresRepository struct {
@@ -55,6 +61,129 @@ func (repository *PostgresRepository) ListAgents(ctx context.Context) ([]Agent, 
 		return nil, fmt.Errorf("iterate agents: %w", err)
 	}
 	return agents, nil
+}
+
+func (repository *PostgresRepository) ListAgentEmbeddingMetadata(ctx context.Context) (map[string]EmbeddingMetadata, error) {
+	rows, err := repository.pool.Query(ctx, `
+		SELECT agent_id, content_hash, embedding_model
+		FROM agent_embedding
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list agent embedding metadata: %w", err)
+	}
+	defer rows.Close()
+
+	metadata := make(map[string]EmbeddingMetadata)
+	for rows.Next() {
+		var agentID string
+		var item EmbeddingMetadata
+		if err := rows.Scan(&agentID, &item.ContentHash, &item.Model); err != nil {
+			return nil, fmt.Errorf("scan agent embedding metadata: %w", err)
+		}
+		metadata[agentID] = item
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate agent embedding metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func (repository *PostgresRepository) UpsertAgentEmbeddings(ctx context.Context, embeddings []AgentEmbedding) error {
+	if len(embeddings) == 0 {
+		return nil
+	}
+	transaction, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin agent embedding transaction: %w", err)
+	}
+	defer transaction.Rollback(ctx)
+
+	for _, embedding := range embeddings {
+		vector, vectorErr := vectorLiteral(embedding.Embedding)
+		if vectorErr != nil {
+			return vectorErr
+		}
+		_, err = transaction.Exec(ctx, `
+			INSERT INTO agent_embedding (
+				agent_id, content_hash, embedding, embedding_model, source_text
+			)
+			VALUES ($1, $2, $3::vector, $4, $5)
+			ON CONFLICT (agent_id) DO UPDATE SET
+				content_hash = EXCLUDED.content_hash,
+				embedding = EXCLUDED.embedding,
+				embedding_model = EXCLUDED.embedding_model,
+				source_text = EXCLUDED.source_text,
+				updated_at = now()
+		`, embedding.AgentID, embedding.ContentHash, vector, embedding.Model, embedding.SourceText)
+		if err != nil {
+			return fmt.Errorf("upsert agent embedding: %w", err)
+		}
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit agent embedding transaction: %w", err)
+	}
+	return nil
+}
+
+func (repository *PostgresRepository) SearchAgentsByEmbedding(
+	ctx context.Context,
+	model string,
+	embedding []float64,
+	limit int,
+) ([]VectorCandidate, error) {
+	vector, err := vectorLiteral(embedding)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := repository.pool.Query(ctx, `
+		SELECT agent.capabilities, agent.created_at, agent.description, agent.endpoint_url,
+		       agent.id, agent.name, agent.status, agent.updated_at,
+		       1 - (agent_embedding.embedding <=> $1::vector) AS similarity
+		FROM agent_embedding
+		JOIN agent ON agent.id = agent_embedding.agent_id
+		WHERE agent.status = 'active'
+		  AND agent_embedding.embedding_model = $2
+		  AND vector_dims(agent_embedding.embedding) = vector_dims($1::vector)
+		ORDER BY agent_embedding.embedding <=> $1::vector, agent.id
+		LIMIT $3
+	`, vector, model, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search agents by embedding: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := make([]VectorCandidate, 0, limit)
+	for rows.Next() {
+		var candidate VectorCandidate
+		if err := rows.Scan(
+			&candidate.Agent.Capabilities, &candidate.Agent.CreatedAt,
+			&candidate.Agent.Description, &candidate.Agent.EndpointURL,
+			&candidate.Agent.ID, &candidate.Agent.Name, &candidate.Agent.Status,
+			&candidate.Agent.UpdatedAt, &candidate.Similarity,
+		); err != nil {
+			return nil, fmt.Errorf("scan vector candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate vector candidates: %w", err)
+	}
+	return candidates, nil
+}
+
+func vectorLiteral(values []float64) (string, error) {
+	if len(values) == 0 {
+		return "", errors.New("embedding must not be empty")
+	}
+	parts := make([]string, len(values))
+	for index, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return "", errors.New("embedding contains a non-finite value")
+		}
+		parts[index] = strconv.FormatFloat(value, 'g', -1, 64)
+	}
+	return "[" + strings.Join(parts, ",") + "]", nil
 }
 
 func (repository *PostgresRepository) CreateTask(ctx context.Context, task Task) error {

@@ -69,6 +69,26 @@ Parameters:
     Type: String
     AllowedPattern: "^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
     Description: ARN of the secret containing the shared Cloudflare Agent API key.
+  MatchingAiSecretArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
+    Description: Optional ARN of the secret containing the embedding and rerank API key.
+  MatchingAiBaseUrl:
+    Type: String
+    Default: ""
+    Description: Base URL exposing POST /embeddings and POST /rerank.
+  MatchingEmbeddingModel:
+    Type: String
+    Default: ""
+  MatchingRerankModel:
+    Type: String
+    Default: ""
+  MatchingRerankUrl:
+    Type: String
+    Default: ""
+Conditions:
+  HasMatchingAiSecret: !Not [!Equals [!Ref MatchingAiSecretArn, ""]]
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -475,6 +495,10 @@ Resources:
                 Resource:
                   - !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
                   - !Ref AgentApiSecretArn
+                  - !If
+                    - HasMatchingAiSecret
+                    - !Ref MatchingAiSecretArn
+                    - !Ref AWS::NoValue
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -518,11 +542,26 @@ Resources:
               Value: !GetAtt DatabaseCluster.Endpoint.Port
             - Name: DATABASE_SSLMODE
               Value: require
+            - Name: MATCHING_AI_BASE_URL
+              Value: !Ref MatchingAiBaseUrl
+            - Name: MATCHING_AI_TIMEOUT_SECONDS
+              Value: "10"
+            - Name: MATCHING_EMBEDDING_MODEL
+              Value: !Ref MatchingEmbeddingModel
+            - Name: MATCHING_RERANK_MODEL
+              Value: !Ref MatchingRerankModel
+            - Name: MATCHING_RERANK_URL
+              Value: !Ref MatchingRerankUrl
             - Name: PORT
               Value: "8080"
           Secrets:
             - Name: AGENT_API_KEY
               ValueFrom: !Ref AgentApiSecretArn
+            - !If
+              - HasMatchingAiSecret
+              - Name: MATCHING_AI_API_KEY
+                ValueFrom: !Ref MatchingAiSecretArn
+              - !Ref AWS::NoValue
             - Name: DATABASE_PASSWORD
               ValueFrom: !Sub "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
             - Name: DATABASE_USERNAME

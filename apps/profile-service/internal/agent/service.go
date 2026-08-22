@@ -22,13 +22,18 @@ var (
 )
 
 type Service struct {
+	matcher    Matcher
 	now        func() time.Time
 	repository Repository
 	runner     Runner
 }
 
-func NewService(repository Repository, runner Runner) *Service {
-	return &Service{now: time.Now, repository: repository, runner: runner}
+func NewService(repository Repository, runner Runner, matchers ...Matcher) *Service {
+	selectedMatcher := Matcher(KeywordMatcher{})
+	if len(matchers) > 0 && matchers[0] != nil {
+		selectedMatcher = matchers[0]
+	}
+	return &Service{matcher: selectedMatcher, now: time.Now, repository: repository, runner: runner}
 }
 
 func (service *Service) ListAgents(ctx context.Context) ([]Agent, error) {
@@ -50,7 +55,7 @@ func (service *Service) CreateTask(ctx context.Context, input CreateTaskInput) (
 	if err != nil {
 		return Task{}, err
 	}
-	matches := MatchAgents(agents, input)
+	matches := service.matcher.Match(ctx, agents, input)
 	if len(matches) == 0 {
 		return Task{}, ErrNoAgents
 	}

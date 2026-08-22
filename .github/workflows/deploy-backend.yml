@@ -45,6 +45,11 @@ env:
   ENVIRONMENT_NAME: dev
   GITHUB_ACTIONS_DEPLOY_ROLE_ARN: arn:aws:iam::492646066759:role/github-profile-dev-github-actions-deploy
   MIGRATION_FUNCTION_NAME: github-profile-dev-migration
+  MATCHING_AI_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+  MATCHING_AI_SECRET_ARN: arn:aws:secretsmanager:us-east-1:492646066759:secret:github-profile/dev/matching-ai-xBQeKc
+  MATCHING_EMBEDDING_MODEL: text-embedding-v3
+  MATCHING_RERANK_MODEL: qwen3-rerank
+  MATCHING_RERANK_URL: https://ws-x104wnhvc5drj65y.cn-beijing.maas.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
   PRIVATE_SUBNET_A_CIDR: 10.0.11.0/24
   PRIVATE_SUBNET_B_CIDR: 10.0.12.0/24
   ECR_REPOSITORY_URI: 492646066759.dkr.ecr.us-east-1.amazonaws.com/aws-demo-001/profile-service
@@ -150,6 +155,11 @@ jobs:
               BetterAuthUrl="$BETTER_AUTH_URL" \
               ProfileServiceImageUri="$PROFILE_SERVICE_IMAGE_URI" \
               AgentApiSecretArn="$AGENT_API_SECRET_ARN" \
+              MatchingAiSecretArn="$MATCHING_AI_SECRET_ARN" \
+              MatchingAiBaseUrl="$MATCHING_AI_BASE_URL" \
+              MatchingEmbeddingModel="$MATCHING_EMBEDDING_MODEL" \
+              MatchingRerankModel="$MATCHING_RERANK_MODEL" \
+              MatchingRerankUrl="$MATCHING_RERANK_URL" \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
 

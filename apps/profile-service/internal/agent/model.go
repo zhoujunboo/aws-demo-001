@@ -49,3 +49,21 @@ type Match struct {
 	Rank  int
 	Score int
 }
+
+type AgentEmbedding struct {
+	AgentID     string
+	ContentHash string
+	Embedding   []float64
+	Model       string
+	SourceText  string
+}
+
+type EmbeddingMetadata struct {
+	ContentHash string
+	Model       string
+}
+
+type VectorCandidate struct {
+	Agent      Agent
+	Similarity float64
+}

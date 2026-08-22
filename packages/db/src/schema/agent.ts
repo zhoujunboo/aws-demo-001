@@ -1,10 +1,22 @@
 import {
+	customType,
+	index,
 	integer,
 	pgTable,
 	text,
 	timestamp,
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+const vector = customType<{ data: number[]; driverData: string }>({
+	dataType: () => "vector",
+	fromDriver: (value) =>
+		value
+			.slice(1, -1)
+			.split(",")
+			.map((item) => Number.parseFloat(item)),
+	toDriver: (value) => `[${value.join(",")}]`,
+});
 
 export const agent = pgTable(
 	"agent",
@@ -40,6 +52,27 @@ export const agentTask = pgTable("agent_task", {
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const agentEmbedding = pgTable(
+	"agent_embedding",
+	{
+		agentId: text("agent_id")
+			.primaryKey()
+			.references(() => agent.id, { onDelete: "cascade" }),
+		contentHash: text("content_hash").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		embedding: vector("embedding").notNull(),
+		embeddingModel: text("embedding_model").notNull(),
+		sourceText: text("source_text").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [index("agent_embedding_model_idx").on(table.embeddingModel)]
+);
 
 export const agentExecution = pgTable(
 	"agent_execution",

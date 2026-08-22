@@ -15,6 +15,17 @@ type Config struct {
 	Address       string
 	AllowedOrigin string
 	DatabaseURL   string
+	MatchingAI    MatchingAIConfig
+}
+
+type MatchingAIConfig struct {
+	APIKey         string
+	BaseURL        string
+	EmbeddingModel string
+	Enabled        bool
+	RerankModel    string
+	RerankURL      string
+	Timeout        time.Duration
 }
 
 func Load() (Config, error) {
@@ -30,6 +41,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	matchingAI, err := loadMatchingAIConfig()
+	if err != nil {
+		return Config{}, err
+	}
 
 	port := valueOrDefault("PORT", "8080")
 	return Config{
@@ -38,6 +53,43 @@ func Load() (Config, error) {
 		Address:       ":" + port,
 		AllowedOrigin: valueOrDefault("CORS_ORIGIN", "http://localhost:3001"),
 		DatabaseURL:   databaseURL,
+		MatchingAI:    matchingAI,
+	}, nil
+}
+
+func loadMatchingAIConfig() (MatchingAIConfig, error) {
+	apiKey := strings.TrimSpace(os.Getenv("MATCHING_AI_API_KEY"))
+	baseURL := strings.TrimSpace(os.Getenv("MATCHING_AI_BASE_URL"))
+	embeddingModel := strings.TrimSpace(os.Getenv("MATCHING_EMBEDDING_MODEL"))
+	rerankModel := strings.TrimSpace(os.Getenv("MATCHING_RERANK_MODEL"))
+	rerankURL := strings.TrimSpace(os.Getenv("MATCHING_RERANK_URL"))
+	values := []string{apiKey, baseURL, embeddingModel, rerankModel}
+	configuredValues := 0
+	for _, value := range values {
+		if value != "" {
+			configuredValues++
+		}
+	}
+	if configuredValues == 0 {
+		return MatchingAIConfig{}, nil
+	}
+	if configuredValues != len(values) {
+		return MatchingAIConfig{}, fmt.Errorf(
+			"MATCHING_AI_API_KEY, MATCHING_AI_BASE_URL, MATCHING_EMBEDDING_MODEL, and MATCHING_RERANK_MODEL must be configured together",
+		)
+	}
+	timeoutSeconds, err := PositiveInt("MATCHING_AI_TIMEOUT_SECONDS", 10)
+	if err != nil {
+		return MatchingAIConfig{}, err
+	}
+	return MatchingAIConfig{
+		APIKey:         apiKey,
+		BaseURL:        baseURL,
+		EmbeddingModel: embeddingModel,
+		Enabled:        true,
+		RerankModel:    rerankModel,
+		RerankURL:      rerankURL,
+		Timeout:        time.Duration(timeoutSeconds) * time.Second,
 	}, nil
 }
 

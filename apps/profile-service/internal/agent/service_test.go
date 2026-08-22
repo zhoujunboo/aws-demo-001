@@ -18,6 +18,23 @@ func (repository *memoryRepository) ListAgents(_ context.Context) ([]Agent, erro
 	return repository.agents, nil
 }
 
+func (repository *memoryRepository) ListAgentEmbeddingMetadata(_ context.Context) (map[string]EmbeddingMetadata, error) {
+	return map[string]EmbeddingMetadata{}, nil
+}
+
+func (repository *memoryRepository) UpsertAgentEmbeddings(_ context.Context, _ []AgentEmbedding) error {
+	return nil
+}
+
+func (repository *memoryRepository) SearchAgentsByEmbedding(
+	_ context.Context,
+	_ string,
+	_ []float64,
+	_ int,
+) ([]VectorCandidate, error) {
+	return nil, nil
+}
+
 func (repository *memoryRepository) CreateTask(_ context.Context, task Task) error {
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()

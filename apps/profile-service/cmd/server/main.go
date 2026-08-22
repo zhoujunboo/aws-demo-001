@@ -59,7 +59,27 @@ func run(logger *slog.Logger) error {
 	profileService := profile.NewService(repository)
 	agentRepository := agent.NewPostgresRepository(pool)
 	agentClient := agent.NewClient(settings.AgentAPIKey, settings.AgentTimeout)
-	agentService := agent.NewService(agentRepository, agentClient)
+	var agentMatcher agent.Matcher = agent.KeywordMatcher{}
+	if settings.MatchingAI.Enabled {
+		matchingClient, matchingClientErr := agent.NewMatchingClient(
+			settings.MatchingAI.BaseURL,
+			settings.MatchingAI.APIKey,
+			settings.MatchingAI.EmbeddingModel,
+			settings.MatchingAI.RerankModel,
+			settings.MatchingAI.RerankURL,
+			settings.MatchingAI.Timeout,
+		)
+		if matchingClientErr != nil {
+			return matchingClientErr
+		}
+		agentMatcher = agent.NewVectorRerankMatcher(agentRepository, matchingClient, matchingClient)
+		logger.Info(
+			"vector matching enabled",
+			"embedding_model", settings.MatchingAI.EmbeddingModel,
+			"rerank_model", settings.MatchingAI.RerankModel,
+		)
+	}
+	agentService := agent.NewService(agentRepository, agentClient, agentMatcher)
 
 	server := &http.Server{
 		Addr:              settings.Address,

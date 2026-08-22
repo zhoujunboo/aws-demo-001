@@ -22,6 +22,13 @@
       "when": 1787374785212,
       "tag": "0002_agent_marketplace",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787408940000,
+      "tag": "0003_semantic_agent_matching",
+      "breakpoints": true
     }
   ]
 }
