@@ -199,6 +199,7 @@ const main = async () => {
   console.log("🔨 Building Lambda bundle with tsdown...");
   await build({
     entry: [
+      "./src/agent-workflow-worker.ts",
       "./src/lambda.ts",
       "./src/migration.ts",
       "./src/profile-generation-worker.ts",

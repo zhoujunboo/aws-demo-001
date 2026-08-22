@@ -7,6 +7,6 @@ architecture = "x86_64"
 handler = "lambda.handler"
 manifest_hash = ""
 packagetype = "Zip"
-functions = ["ApiFunction", "MigrationFunction"]
+functions = ["ApiFunction", "ProfileGenerationWorkerFunction", "AgentWorkflowWorkerFunction", "MigrationFunction"]
 
 [layer_build_definitions]

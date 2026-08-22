@@ -10,12 +10,22 @@ import (
 )
 
 type Config struct {
-	AgentAPIKey   string
-	AgentTimeout  time.Duration
-	Address       string
-	AllowedOrigin string
-	DatabaseURL   string
-	MatchingAI    MatchingAIConfig
+	AgentAPIKey      string
+	AgentTimeout     time.Duration
+	Address          string
+	AllowedOrigin    string
+	DatabaseURL      string
+	MatchingAI       MatchingAIConfig
+	SchedulerAI      SchedulerAIConfig
+	WorkflowQueueURL string
+}
+
+type SchedulerAIConfig struct {
+	APIKey  string
+	BaseURL string
+	Enabled bool
+	Model   string
+	Timeout time.Duration
 }
 
 type MatchingAIConfig struct {
@@ -45,16 +55,69 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	schedulerAI, err := loadSchedulerAIConfig()
+	if err != nil {
+		return Config{}, err
+	}
 
 	port := valueOrDefault("PORT", "8080")
 	return Config{
-		AgentAPIKey:   agentAPIKey,
-		AgentTimeout:  time.Duration(agentTimeoutSeconds) * time.Second,
-		Address:       ":" + port,
-		AllowedOrigin: valueOrDefault("CORS_ORIGIN", "http://localhost:3001"),
-		DatabaseURL:   databaseURL,
-		MatchingAI:    matchingAI,
+		AgentAPIKey:      agentAPIKey,
+		AgentTimeout:     time.Duration(agentTimeoutSeconds) * time.Second,
+		Address:          ":" + port,
+		AllowedOrigin:    valueOrDefault("CORS_ORIGIN", "http://localhost:3001"),
+		DatabaseURL:      databaseURL,
+		MatchingAI:       matchingAI,
+		SchedulerAI:      schedulerAI,
+		WorkflowQueueURL: strings.TrimSpace(os.Getenv("AGENT_WORKFLOW_QUEUE_URL")),
 	}, nil
+}
+
+func loadSchedulerAIConfig() (SchedulerAIConfig, error) {
+	apiKey := firstNonEmpty(
+		os.Getenv("SCHEDULER_AI_API_KEY"),
+		os.Getenv("OPENAI_API_KEY"),
+	)
+	baseURL := firstNonEmpty(
+		os.Getenv("SCHEDULER_AI_BASE_URL"),
+		os.Getenv("OPENAI_BASE_URL"),
+	)
+	model := firstNonEmpty(
+		os.Getenv("SCHEDULER_AI_MODEL"),
+		os.Getenv("OPENAI_MODEL"),
+	)
+	values := []string{apiKey, baseURL, model}
+	configuredValues := 0
+	for _, value := range values {
+		if value != "" {
+			configuredValues++
+		}
+	}
+	if configuredValues == 0 {
+		return SchedulerAIConfig{}, nil
+	}
+	if configuredValues != len(values) {
+		return SchedulerAIConfig{}, fmt.Errorf(
+			"scheduler AI key, base URL, and model must be configured together using SCHEDULER_AI_* or OPENAI_*",
+		)
+	}
+	timeoutSeconds, err := PositiveInt("SCHEDULER_AI_TIMEOUT_SECONDS", 15)
+	if err != nil {
+		return SchedulerAIConfig{}, err
+	}
+	return SchedulerAIConfig{
+		APIKey: apiKey, BaseURL: baseURL, Enabled: true, Model: model,
+		Timeout: time.Duration(timeoutSeconds) * time.Second,
+	}, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmedValue := strings.TrimSpace(value); trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
 }
 
 func loadMatchingAIConfig() (MatchingAIConfig, error) {

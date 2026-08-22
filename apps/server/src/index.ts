@@ -112,6 +112,21 @@ app.get("/v1/tasks/:taskId", (c) =>
 		`/v1/tasks/${encodeURIComponent(c.req.param("taskId"))}`
 	)
 );
+app.post("/v1/workflows/preview", (c) =>
+	proxyProfileService(c.req.raw, "/v1/workflows/preview")
+);
+app.get("/v1/workflows/:workflowId", (c) =>
+	proxyProfileService(
+		c.req.raw,
+		`/v1/workflows/${encodeURIComponent(c.req.param("workflowId"))}`
+	)
+);
+app.post("/v1/workflows/:workflowId/execute", (c) =>
+	proxyProfileService(
+		c.req.raw,
+		`/v1/workflows/${encodeURIComponent(c.req.param("workflowId"))}/execute`
+	)
+);
 
 app.use(
 	"/trpc/*",

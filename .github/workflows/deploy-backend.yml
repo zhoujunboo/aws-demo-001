@@ -57,6 +57,9 @@ env:
   PUBLIC_SUBNET_CIDR: 10.0.1.0/24
   SAM_ARTIFACT_BUCKET: aws-sam-cli-managed-default-samclisourcebucket-tftx0efd35e6
   SAM_ARTIFACT_PREFIX: github-profile-dev
+  SCHEDULER_AI_BASE_URL: https://hk1.heliumlabz.com
+  SCHEDULER_AI_MODEL: gpt-5.5
+  SCHEDULER_AI_SECRET_ARN: arn:aws:secretsmanager:us-east-1:492646066759:secret:github-profile/dev/scheduler-ai-tMlZne
   STACK_NAME: github-profile-dev
   VPC_CIDR: 10.0.0.0/16
 
@@ -160,6 +163,9 @@ jobs:
               MatchingEmbeddingModel="$MATCHING_EMBEDDING_MODEL" \
               MatchingRerankModel="$MATCHING_RERANK_MODEL" \
               MatchingRerankUrl="$MATCHING_RERANK_URL" \
+              SchedulerAiSecretArn="$SCHEDULER_AI_SECRET_ARN" \
+              SchedulerAiBaseUrl="$SCHEDULER_AI_BASE_URL" \
+              SchedulerAiModel="$SCHEDULER_AI_MODEL" \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
 

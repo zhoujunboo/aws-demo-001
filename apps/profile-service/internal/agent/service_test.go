@@ -9,10 +9,12 @@ import (
 )
 
 type memoryRepository struct {
-	agents     []Agent
-	embeddings []AgentEmbedding
-	mutex      sync.Mutex
-	tasks      map[string]Task
+	agents        []Agent
+	dispatchStats map[string]DispatchStat
+	embeddings    []AgentEmbedding
+	mutex         sync.Mutex
+	tasks         map[string]Task
+	workflows     map[string]Workflow
 }
 
 func (repository *memoryRepository) CreateAgentWithEmbedding(

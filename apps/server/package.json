@@ -17,6 +17,7 @@
     "@aws-demo-001/env": "workspace:*",
     "@hono/node-server": "^2.0.12",
     "@hono/trpc-server": "^0.4.2",
+    "@langchain/langgraph": "^1.4.12",
     "@trpc/server": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",

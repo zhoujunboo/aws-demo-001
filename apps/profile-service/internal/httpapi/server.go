@@ -21,19 +21,130 @@ type Server struct {
 	agents        *agent.Service
 	logger        *slog.Logger
 	profiles      *profile.Service
+	workflows     *agent.WorkflowService
 }
 
-func NewServer(profiles *profile.Service, agents *agent.Service, allowedOrigin string, logger *slog.Logger) http.Handler {
-	server := &Server{agents: agents, allowedOrigin: allowedOrigin, logger: logger, profiles: profiles}
+func NewServer(
+	profiles *profile.Service,
+	agents *agent.Service,
+	workflows *agent.WorkflowService,
+	allowedOrigin string,
+	logger *slog.Logger,
+) http.Handler {
+	server := &Server{
+		agents: agents, allowedOrigin: allowedOrigin, logger: logger,
+		profiles: profiles, workflows: workflows,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /v1/agents", server.listAgents)
 	mux.HandleFunc("POST /v1/agents", server.registerAgent)
 	mux.HandleFunc("POST /v1/tasks", server.createTask)
 	mux.HandleFunc("GET /v1/tasks/{taskId}", server.getTask)
+	mux.HandleFunc("POST /v1/workflows/preview", server.createWorkflowPreview)
+	mux.HandleFunc("GET /v1/workflows/{workflowId}", server.getWorkflow)
+	mux.HandleFunc("POST /v1/workflows/{workflowId}/execute", server.queueWorkflow)
+	mux.HandleFunc("POST /internal/v1/workflows/{workflowId}/start", server.startWorkflow)
+	mux.HandleFunc("POST /internal/v1/workflows/{workflowId}/steps/{stepId}/run", server.runWorkflowStep)
+	mux.HandleFunc("POST /internal/v1/workflows/{workflowId}/complete", server.completeWorkflow)
 	mux.HandleFunc("GET /v1/profiles/{profileId}/introduction", server.getIntroduction)
 	mux.HandleFunc("POST /v1/profiles/{profileId}/introduction", server.generateIntroduction)
 	return server.withMiddleware(mux)
+}
+
+func (server *Server) createWorkflowPreview(writer http.ResponseWriter, request *http.Request) {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxTaskRequestBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var input agent.CreateWorkflowPreviewInput
+	if err := decoder.Decode(&input); err != nil {
+		writeError(writer, http.StatusBadRequest, "需求参数无效")
+		return
+	}
+	result, err := server.workflows.CreatePreview(request.Context(), input)
+	if err == nil {
+		writeJSON(writer, http.StatusCreated, result)
+		return
+	}
+	switch {
+	case errors.Is(err, agent.ErrInvalidWorkflow):
+		writeError(writer, http.StatusBadRequest, "需求描述至少需要 10 个字符")
+	case errors.Is(err, agent.ErrNoAgents):
+		writeError(writer, http.StatusServiceUnavailable, "当前没有可完成该方案的 Agent")
+	default:
+		server.internalError(writer, request, err)
+	}
+}
+
+func (server *Server) getWorkflow(writer http.ResponseWriter, request *http.Request) {
+	result, err := server.workflows.GetWorkflow(request.Context(), request.PathValue("workflowId"))
+	if err == nil {
+		writeJSON(writer, http.StatusOK, result)
+		return
+	}
+	if errors.Is(err, agent.ErrWorkflowNotFound) {
+		writeError(writer, http.StatusNotFound, "执行方案不存在")
+		return
+	}
+	server.internalError(writer, request, err)
+}
+
+func (server *Server) queueWorkflow(writer http.ResponseWriter, request *http.Request) {
+	result, err := server.workflows.QueueWorkflow(request.Context(), request.PathValue("workflowId"))
+	if err == nil {
+		writeJSON(writer, http.StatusAccepted, result)
+		return
+	}
+	switch {
+	case errors.Is(err, agent.ErrWorkflowNotFound):
+		writeError(writer, http.StatusNotFound, "执行方案不存在")
+	case errors.Is(err, agent.ErrWorkflowNotExecutable):
+		writeError(writer, http.StatusConflict, "当前方案不能重复执行")
+	default:
+		server.internalError(writer, request, err)
+	}
+}
+
+func (server *Server) startWorkflow(writer http.ResponseWriter, request *http.Request) {
+	result, err := server.workflows.StartWorkflow(request.Context(), request.PathValue("workflowId"))
+	if err != nil {
+		server.internalError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) runWorkflowStep(writer http.ResponseWriter, request *http.Request) {
+	result, err := server.workflows.RunStep(
+		request.Context(),
+		request.PathValue("workflowId"),
+		request.PathValue("stepId"),
+	)
+	if err != nil {
+		server.internalError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) completeWorkflow(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		Failed bool `json:"failed"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+		writeError(writer, http.StatusBadRequest, "完成状态无效")
+		return
+	}
+	result, err := server.workflows.CompleteWorkflow(
+		request.Context(),
+		request.PathValue("workflowId"),
+		input.Failed,
+	)
+	if err != nil {
+		server.internalError(writer, request, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (server *Server) registerAgent(writer http.ResponseWriter, request *http.Request) {

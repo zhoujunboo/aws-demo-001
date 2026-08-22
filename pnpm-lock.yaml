@@ -144,6 +144,9 @@ importers:
       '@hono/trpc-server':
         specifier: ^0.4.2
         version: 0.4.2(@trpc/server@11.18.0(typescript@6.0.3))(hono@4.13.1)
+      '@langchain/langgraph':
+        specifier: ^1.4.12
+        version: 1.4.12(@langchain/core@1.2.9(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@trpc/server':
         specifier: 'catalog:'
         version: 11.18.0(typescript@6.0.3)

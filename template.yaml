@@ -87,8 +87,21 @@ Parameters:
   MatchingRerankUrl:
     Type: String
     Default: ""
+  SchedulerAiSecretArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
+    Description: Optional ARN of the secret containing the scheduler LLM API key.
+  SchedulerAiBaseUrl:
+    Type: String
+    Default: ""
+    Description: OpenAI-compatible base URL used to decompose workflow tasks.
+  SchedulerAiModel:
+    Type: String
+    Default: ""
 Conditions:
   HasMatchingAiSecret: !Not [!Equals [!Ref MatchingAiSecretArn, ""]]
+  HasSchedulerAiSecret: !Not [!Equals [!Ref SchedulerAiSecretArn, ""]]
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -499,6 +512,38 @@ Resources:
                     - HasMatchingAiSecret
                     - !Ref MatchingAiSecretArn
                     - !Ref AWS::NoValue
+                  - !If
+                    - HasSchedulerAiSecret
+                    - !Ref SchedulerAiSecretArn
+                    - !Ref AWS::NoValue
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProfileServiceTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+      Policies:
+        - PolicyName: PublishAgentWorkflows
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt AgentWorkflowQueue.Arn
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -518,6 +563,7 @@ Resources:
       RuntimePlatform:
         CpuArchitecture: X86_64
         OperatingSystemFamily: LINUX
+      TaskRoleArn: !GetAtt ProfileServiceTaskRole.Arn
       ContainerDefinitions:
         - Name: profile-service
           Essential: true
@@ -530,6 +576,8 @@ Resources:
           Environment:
             - Name: AGENT_TIMEOUT_SECONDS
               Value: "25"
+            - Name: AGENT_WORKFLOW_QUEUE_URL
+              Value: !Ref AgentWorkflowQueue
             - Name: CORS_ORIGIN
               Value: !Ref CorsOrigin
             - Name: DATABASE_HOST
@@ -554,6 +602,12 @@ Resources:
               Value: !Ref MatchingRerankUrl
             - Name: PORT
               Value: "8080"
+            - Name: SCHEDULER_AI_BASE_URL
+              Value: !Ref SchedulerAiBaseUrl
+            - Name: SCHEDULER_AI_MODEL
+              Value: !Ref SchedulerAiModel
+            - Name: SCHEDULER_AI_TIMEOUT_SECONDS
+              Value: "15"
           Secrets:
             - Name: AGENT_API_KEY
               ValueFrom: !Ref AgentApiSecretArn
@@ -561,6 +615,11 @@ Resources:
               - HasMatchingAiSecret
               - Name: MATCHING_AI_API_KEY
                 ValueFrom: !Ref MatchingAiSecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasSchedulerAiSecret
+              - Name: SCHEDULER_AI_API_KEY
+                ValueFrom: !Ref SchedulerAiSecretArn
               - !Ref AWS::NoValue
             - Name: DATABASE_PASSWORD
               ValueFrom: !Sub "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
@@ -746,6 +805,35 @@ Resources:
       Protocol: sqs
       RawMessageDelivery: true
       TopicArn: !Ref ProfileEventsTopic
+
+  AgentWorkflowDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub "${ProjectName}-${EnvironmentName}-agent-workflow-dlq.fifo"
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  AgentWorkflowQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      QueueName: !Sub "${ProjectName}-${EnvironmentName}-agent-workflow-jobs.fifo"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt AgentWorkflowDeadLetterQueue.Arn
+        maxReceiveCount: 3
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+      VisibilityTimeout: 1800
 
   CanaryArtifactsBucket:
     Type: AWS::S3::Bucket
@@ -965,6 +1053,38 @@ Resources:
           - !Ref PrivateSubnetA
           - !Ref PrivateSubnetB
 
+  AgentWorkflowWorkerFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: ProfileService
+    Properties:
+      CodeUri: apps/server/dist/lambda/
+      Description: Runs persisted Agent plans through a small LangGraph workflow.
+      Environment:
+        Variables:
+          PROFILE_SERVICE_URL: !Sub "http://${ProfileServiceLoadBalancer.DNSName}"
+      Events:
+        AgentWorkflowQueueEvent:
+          Type: SQS
+          Properties:
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            Queue: !GetAtt AgentWorkflowQueue.Arn
+            ScalingConfig:
+              MaximumConcurrency: 5
+      FunctionName: !Sub "${ProjectName}-${EnvironmentName}-agent-workflow-worker"
+      Handler: agent-workflow-worker.handler
+      Policies:
+        - AWSLambdaVPCAccessExecutionRole
+      ReservedConcurrentExecutions: 5
+      Timeout: 300
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+
   MigrationFunction:
     Type: AWS::Serverless::Function
     DependsOn: DatabaseInstance
@@ -991,6 +1111,12 @@ Resources:
           - !Ref PrivateSubnetB
 
 Outputs:
+  AgentWorkflowDeadLetterQueueUrl:
+    Value: !Ref AgentWorkflowDeadLetterQueue
+  AgentWorkflowQueueUrl:
+    Value: !Ref AgentWorkflowQueue
+  AgentWorkflowWorkerFunctionName:
+    Value: !Ref AgentWorkflowWorkerFunction
   ApiUrl:
     Description: Use this value as BetterAuthUrl after the first deployment.
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"

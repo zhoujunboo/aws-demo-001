@@ -28,6 +28,51 @@ type RegisterAgentInput struct {
 	Name         string   `json:"name"`
 }
 
+type CreateWorkflowPreviewInput struct {
+	Description string `json:"description"`
+}
+
+type Workflow struct {
+	CompletedAt         *time.Time     `json:"completedAt"`
+	CreatedAt           time.Time      `json:"createdAt"`
+	Description         string         `json:"description"`
+	EstimatedPriceCents int            `json:"estimatedPriceCents"`
+	ID                  string         `json:"id"`
+	ReliabilityScore    int            `json:"reliabilityScore"`
+	StartedAt           *time.Time     `json:"startedAt"`
+	Status              string         `json:"status"`
+	Steps               []WorkflowStep `json:"steps"`
+	UpdatedAt           time.Time      `json:"updatedAt"`
+}
+
+type WorkflowStep struct {
+	AgentID       string     `json:"agentId"`
+	AgentName     string     `json:"agentName"`
+	AttemptCount  int        `json:"attemptCount"`
+	CompletedAt   *time.Time `json:"completedAt"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	ErrorCode     *string    `json:"errorCode,omitempty"`
+	FairnessScore int        `json:"fairnessScore"`
+	ID            string     `json:"id"`
+	Instruction   string     `json:"instruction"`
+	MatchScore    int        `json:"matchScore"`
+	Output        *string    `json:"output,omitempty"`
+	StartedAt     *time.Time `json:"startedAt"`
+	Status        string     `json:"status"`
+	StepOrder     int        `json:"stepOrder"`
+	Title         string     `json:"title"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	WorkflowID    string     `json:"workflowId"`
+}
+
+type DispatchStat struct {
+	AgentID        string
+	EligibleCount  int
+	ExecutionCount int
+	SelectedCount  int
+	SuccessCount   int
+}
+
 type Task struct {
 	CompletedAt *time.Time  `json:"completedAt"`
 	CreatedAt   time.Time   `json:"createdAt"`

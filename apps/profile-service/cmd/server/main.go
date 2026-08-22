@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/junbozhou88/aws-demo-001/profile-service/internal/agent"
 	"github.com/junbozhou88/aws-demo-001/profile-service/internal/config"
@@ -82,10 +84,45 @@ func run(logger *slog.Logger) error {
 		)
 	}
 	agentService := agent.NewService(agentRepository, agentClient, agentMatcher, embeddingProvider)
+	var taskPlanner agent.TaskPlanner = agent.DeterministicTaskPlanner{}
+	if settings.SchedulerAI.Enabled {
+		schedulerClient, schedulerClientErr := agent.NewSchedulerClient(
+			settings.SchedulerAI.BaseURL,
+			settings.SchedulerAI.APIKey,
+			settings.SchedulerAI.Model,
+			settings.SchedulerAI.Timeout,
+		)
+		if schedulerClientErr != nil {
+			return schedulerClientErr
+		}
+		taskPlanner = schedulerClient
+		logger.Info("LLM workflow scheduler enabled", "model", settings.SchedulerAI.Model)
+	}
+	var workflowPublisher agent.WorkflowPublisher
+	if settings.WorkflowQueueURL != "" {
+		awsSettings, awsSettingsErr := awsconfig.LoadDefaultConfig(startupContext)
+		if awsSettingsErr != nil {
+			return awsSettingsErr
+		}
+		workflowPublisher, err = agent.NewSQSWorkflowPublisher(
+			sqs.NewFromConfig(awsSettings),
+			settings.WorkflowQueueURL,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	workflowService := agent.NewWorkflowService(
+		agentRepository,
+		agentClient,
+		agentMatcher,
+		taskPlanner,
+		workflowPublisher,
+	)
 
 	server := &http.Server{
 		Addr:              settings.Address,
-		Handler:           httpapi.NewServer(profileService, agentService, settings.AllowedOrigin, logger),
+		Handler:           httpapi.NewServer(profileService, agentService, workflowService, settings.AllowedOrigin, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      settings.AgentTimeout + 15*time.Second,
