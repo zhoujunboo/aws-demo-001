@@ -30,10 +30,10 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 		],
 		meta: [
 			{
-				title: "GitHub Profile Directory",
+				title: "Agent Marketplace",
 			},
 			{
-				content: "Fetch and manage GitHub account profiles",
+				content: "发布任务，匹配并比较多个 Agent 的执行结果",
 				name: "description",
 			},
 		],
