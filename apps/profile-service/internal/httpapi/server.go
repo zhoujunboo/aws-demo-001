@@ -14,7 +14,7 @@ import (
 
 const maxTaskRequestBytes = 45_000
 
-const maxAgentRegistrationRequestBytes = 8_000
+const maxAgentRegistrationRequestBytes = 32_000
 
 type Server struct {
 	allowedOrigin string
@@ -172,7 +172,7 @@ func (server *Server) registerAgent(writer http.ResponseWriter, request *http.Re
 	}
 	switch {
 	case errors.Is(err, agent.ErrInvalidAgent):
-		writeError(writer, http.StatusBadRequest, "请检查 Agent ID、描述、能力标签和 HTTPS 调用地址")
+		writeError(writer, http.StatusBadRequest, "请检查 Agent 基本信息、输入参数、输出类型和 HTTPS 调用地址")
 	case errors.Is(err, agent.ErrAgentConflict):
 		writeError(writer, http.StatusConflict, "Agent ID 或调用地址已注册")
 	case errors.Is(err, agent.ErrVectorUnavailable):

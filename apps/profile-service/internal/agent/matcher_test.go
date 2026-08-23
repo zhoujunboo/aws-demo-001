@@ -38,8 +38,8 @@ func TestMatchAgentsRanksPolisherFirstWithExistingResume(t *testing.T) {
 
 func testAgents() []Agent {
 	return []Agent{
-		{ID: "tech-resume", Status: "active"},
-		{ID: "ats-resume", Status: "active"},
-		{ID: "resume-polisher", Status: "active"},
+		{AutoAcceptJobs: true, ID: "tech-resume", Status: "active"},
+		{AutoAcceptJobs: true, ID: "ats-resume", Status: "active"},
+		{AutoAcceptJobs: true, ID: "resume-polisher", Status: "active"},
 	}
 }

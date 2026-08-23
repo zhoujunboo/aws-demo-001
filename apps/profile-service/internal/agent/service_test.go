@@ -98,6 +98,17 @@ func (repository *memoryRepository) GetTask(_ context.Context, taskID string) (T
 
 type fakeRunner struct{}
 
+func validTestSchema() AgentSchema {
+	return AgentSchema{
+		AdditionalProperties: false,
+		Properties: map[string]AgentSchemaProperty{
+			"description": {Description: "任务描述", Type: "string"},
+		},
+		Required: []string{"description"},
+		Type:     "object",
+	}
+}
+
 func (fakeRunner) Run(_ context.Context, selectedAgent Agent, _ string, _ CreateTaskInput) (string, error) {
 	if selectedAgent.ID == "resume-polisher" {
 		return "", &RunError{Code: "agent_timeout", Err: errors.New("timeout")}
@@ -108,9 +119,9 @@ func (fakeRunner) Run(_ context.Context, selectedAgent Agent, _ string, _ Create
 func TestCreateTaskKeepsIndependentAgentResults(t *testing.T) {
 	repository := &memoryRepository{
 		agents: []Agent{
-			{ID: "tech-resume", Name: "Tech", Status: "active"},
-			{ID: "ats-resume", Name: "ATS", Status: "active"},
-			{ID: "resume-polisher", Name: "Polisher", Status: "active"},
+			{AutoAcceptJobs: true, ID: "tech-resume", Name: "Tech", Status: "active"},
+			{AutoAcceptJobs: true, ID: "ats-resume", Name: "ATS", Status: "active"},
+			{AutoAcceptJobs: true, ID: "resume-polisher", Name: "Polisher", Status: "active"},
 		},
 		tasks: make(map[string]Task),
 	}
@@ -171,11 +182,16 @@ func TestRegisterAgentStoresAgentAndEmbeddingTogether(t *testing.T) {
 	}
 
 	result, err := service.RegisterAgent(context.Background(), RegisterAgentInput{
-		Capabilities: []string{"resume", "TypeScript", "resume"},
-		Description:  "为前端工程师生成突出项目成果的专业简历",
-		EndpointURL:  "https://example.com/v1/run",
-		ID:           "frontend-resume",
-		Name:         "前端简历 Agent",
+		AutoAcceptJobs: true,
+		Capabilities:   []string{"resume", "TypeScript", "resume"},
+		Classification: "development",
+		Description:    "为前端工程师生成突出项目成果的专业简历",
+		EndpointURL:    "https://example.com/v1/run",
+		ID:             "frontend-resume",
+		InputSchema:    validTestSchema(),
+		IsFree:         true,
+		Name:           "前端简历 Agent",
+		OutputTypes:    []string{"text"},
 	})
 	if err != nil {
 		t.Fatalf("RegisterAgent returned an error: %v", err)
@@ -203,16 +219,94 @@ func TestRegisterAgentRejectsInvalidEndpointBeforeEmbedding(t *testing.T) {
 	)
 
 	_, err := service.RegisterAgent(context.Background(), RegisterAgentInput{
-		Capabilities: []string{"resume"},
-		Description:  "为前端工程师生成突出项目成果的专业简历",
-		EndpointURL:  "http://example.com/v1/run",
-		ID:           "frontend-resume",
-		Name:         "前端简历 Agent",
+		AutoAcceptJobs: true,
+		Capabilities:   []string{"resume"},
+		Classification: "development",
+		Description:    "为前端工程师生成突出项目成果的专业简历",
+		EndpointURL:    "http://example.com/v1/run",
+		ID:             "frontend-resume",
+		InputSchema:    validTestSchema(),
+		IsFree:         true,
+		Name:           "前端简历 Agent",
+		OutputTypes:    []string{"text"},
 	})
 	if !errors.Is(err, ErrInvalidAgent) {
 		t.Fatalf("expected ErrInvalidAgent, got %v", err)
 	}
 	if len(repository.agents) != 0 || len(repository.embeddings) != 0 {
 		t.Fatal("invalid agent must not be stored")
+	}
+}
+
+func TestRegisterAgentRejectsMissingContract(t *testing.T) {
+	repository := &memoryRepository{}
+	service := NewService(
+		repository,
+		fakeRunner{},
+		nil,
+		fakeEmbeddingProvider{model: "text-embedding-v3"},
+	)
+
+	_, err := service.RegisterAgent(context.Background(), RegisterAgentInput{
+		Capabilities:   []string{"resume"},
+		Classification: "development",
+		Description:    "为前端工程师生成突出项目成果的专业简历",
+		EndpointURL:    "https://example.com/v1/run",
+		ID:             "frontend-resume",
+		IsFree:         true,
+		Name:           "前端简历 Agent",
+	})
+	if !errors.Is(err, ErrInvalidAgent) {
+		t.Fatalf("expected ErrInvalidAgent, got %v", err)
+	}
+}
+
+func TestRegisterAgentRequiresSchemaForStructuredOutput(t *testing.T) {
+	repository := &memoryRepository{}
+	service := NewService(
+		repository,
+		fakeRunner{},
+		nil,
+		fakeEmbeddingProvider{model: "text-embedding-v3"},
+	)
+
+	_, err := service.RegisterAgent(context.Background(), RegisterAgentInput{
+		Capabilities:   []string{"resume"},
+		Classification: "development",
+		Description:    "为前端工程师生成突出项目成果的专业简历",
+		EndpointURL:    "https://example.com/v1/run",
+		ID:             "frontend-resume",
+		InputSchema:    validTestSchema(),
+		IsFree:         true,
+		Name:           "前端简历 Agent",
+		OutputTypes:    []string{"json"},
+	})
+	if !errors.Is(err, ErrInvalidAgent) {
+		t.Fatalf("expected ErrInvalidAgent, got %v", err)
+	}
+}
+
+func TestRegisterAgentRequiresContractAddressWhenPaid(t *testing.T) {
+	repository := &memoryRepository{}
+	service := NewService(
+		repository,
+		fakeRunner{},
+		nil,
+		fakeEmbeddingProvider{model: "text-embedding-v3"},
+	)
+
+	_, err := service.RegisterAgent(context.Background(), RegisterAgentInput{
+		AutoAcceptJobs: true,
+		Capabilities:   []string{"resume"},
+		Classification: "development",
+		Description:    "为前端工程师生成突出项目成果的专业简历",
+		EndpointURL:    "https://example.com/v1/run",
+		ID:             "frontend-resume",
+		InputSchema:    validTestSchema(),
+		Name:           "前端简历 Agent",
+		OutputTypes:    []string{"text"},
+	})
+	if !errors.Is(err, ErrInvalidAgent) {
+		t.Fatalf("expected ErrInvalidAgent, got %v", err)
 	}
 }

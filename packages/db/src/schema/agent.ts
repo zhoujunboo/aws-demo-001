@@ -1,7 +1,9 @@
 import {
+	boolean,
 	customType,
 	index,
 	integer,
+	jsonb,
 	pgTable,
 	text,
 	timestamp,
@@ -21,14 +23,22 @@ const vector = customType<{ data: number[]; driverData: string }>({
 export const agent = pgTable(
 	"agent",
 	{
+		authorBio: text("author_bio").default("").notNull(),
+		autoAcceptJobs: boolean("auto_accept_jobs").default(true).notNull(),
 		capabilities: text("capabilities").array().notNull(),
+		classification: text("classification").default("general").notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
 		description: text("description").notNull(),
 		endpointUrl: text("endpoint_url").notNull(),
 		id: text("id").primaryKey(),
+		inputSchema: jsonb("input_schema").notNull(),
+		isFree: boolean("is_free").default(true).notNull(),
 		name: text("name").notNull(),
+		outputSchema: jsonb("output_schema"),
+		outputTypes: text("output_types").array().default(["text"]).notNull(),
+		settlementContractAddress: text("settlement_contract_address"),
 		status: text("status").default("active").notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true })
 			.defaultNow()

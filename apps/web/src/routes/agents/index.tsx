@@ -42,6 +42,15 @@ const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
 const formatDate = (value: string): string =>
 	dateTimeFormatter.format(new Date(value));
 
+const classificationLabels: Record<Agent["classification"], string> = {
+	automation: "流程自动化",
+	content: "内容创作",
+	data: "数据处理",
+	development: "开发工具",
+	general: "通用助手",
+	research: "研究分析",
+};
+
 function AgentItem({ agent }: { agent: Agent }) {
 	return (
 		<Card size="sm">
@@ -52,6 +61,7 @@ function AgentItem({ agent }: { agent: Agent }) {
 				</CardTitle>
 				<CardDescription>{agent.id}</CardDescription>
 				<CardAction className="flex items-center gap-1.5">
+					<Badge variant="outline">{agent.isFree ? "免费" : "合约结算"}</Badge>
 					<Badge variant={agent.vectorIndexed ? "default" : "destructive"}>
 						{agent.vectorIndexed ? "向量已入库" : "等待向量"}
 					</Badge>
@@ -64,6 +74,9 @@ function AgentItem({ agent }: { agent: Agent }) {
 				<div>
 					<p className="text-sm leading-6">{agent.description}</p>
 					<div className="mt-3 flex flex-wrap gap-1.5">
+						<Badge variant="secondary">
+							{classificationLabels[agent.classification]}
+						</Badge>
 						{agent.capabilities.map((capability) => (
 							<Badge key={capability} variant="outline">
 								{capability}
@@ -72,6 +85,18 @@ function AgentItem({ agent }: { agent: Agent }) {
 					</div>
 				</div>
 				<dl className="grid content-start gap-2 border-t pt-4 text-xs md:border-t-0 md:border-l md:pt-0 md:pl-4">
+					<div>
+						<dt className="text-muted-foreground">任务接入</dt>
+						<dd className="mt-0.5 font-medium">
+							{agent.autoAcceptJobs ? "自动接单" : "仅手动选择"}
+						</dd>
+					</div>
+					<div>
+						<dt className="text-muted-foreground">输出</dt>
+						<dd className="mt-0.5 font-medium">
+							{agent.outputTypes.join(" / ")}
+						</dd>
+					</div>
 					<div>
 						<dt className="text-muted-foreground">Embedding 模型</dt>
 						<dd className="mt-0.5 break-words font-medium">

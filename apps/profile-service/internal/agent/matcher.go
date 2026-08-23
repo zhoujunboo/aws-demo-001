@@ -33,7 +33,7 @@ func MatchAgents(agents []Agent, input CreateTaskInput) []Match {
 
 	matches := make([]Match, 0, len(agents))
 	for _, candidate := range agents {
-		if candidate.Status != "active" {
+		if candidate.Status != "active" || !candidate.AutoAcceptJobs {
 			continue
 		}
 

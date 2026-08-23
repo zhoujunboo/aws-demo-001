@@ -16,13 +16,26 @@ import (
 
 const (
 	maxAgentDescriptionLength = 1_000
+	maxAuthorBioLength        = 500
 	maxAgentNameLength        = 80
 	maxCapabilities           = 12
 	maxDescriptionLength      = 8_000
+	maxSchemaProperties       = 24
 	maxResumeLength           = 30_000
 )
 
 var agentIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$`)
+var settlementContractAddressPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
+var schemaPropertyNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,63}$`)
+
+var agentClassifications = map[string]struct{}{
+	"automation":  {},
+	"content":     {},
+	"data":        {},
+	"development": {},
+	"general":     {},
+	"research":    {},
+}
 
 var (
 	ErrInvalidAgent      = errors.New("invalid agent registration")
@@ -95,14 +108,33 @@ func validateAgentRegistration(input RegisterAgentInput, now time.Time) (Agent, 
 	id := strings.TrimSpace(input.ID)
 	name := strings.TrimSpace(input.Name)
 	description := strings.TrimSpace(input.Description)
+	authorBio := strings.TrimSpace(input.AuthorBio)
+	classification := strings.TrimSpace(input.Classification)
 	endpointURL := strings.TrimSpace(input.EndpointURL)
+	var settlementContractAddress *string
+	if input.SettlementContractAddress != nil {
+		trimmedAddress := strings.TrimSpace(*input.SettlementContractAddress)
+		settlementContractAddress = &trimmedAddress
+	}
 	parsedURL, err := url.Parse(endpointURL)
 	isLocalHTTP := err == nil && parsedURL.Scheme == "http" &&
 		(parsedURL.Hostname() == "localhost" || parsedURL.Hostname() == "127.0.0.1" || parsedURL.Hostname() == "::1")
 	isValidEndpoint := err == nil && parsedURL.Host != "" && (parsedURL.Scheme == "https" || isLocalHTTP)
 	if !agentIDPattern.MatchString(id) || utf8.RuneCountInString(name) < 2 ||
 		utf8.RuneCountInString(name) > maxAgentNameLength || utf8.RuneCountInString(description) < 10 ||
-		utf8.RuneCountInString(description) > maxAgentDescriptionLength || !isValidEndpoint {
+		utf8.RuneCountInString(description) > maxAgentDescriptionLength ||
+		utf8.RuneCountInString(authorBio) > maxAuthorBioLength || !isValidEndpoint {
+		return Agent{}, ErrInvalidAgent
+	}
+	if _, validClassification := agentClassifications[classification]; !validClassification {
+		return Agent{}, ErrInvalidAgent
+	}
+	if input.IsFree {
+		if settlementContractAddress != nil {
+			return Agent{}, ErrInvalidAgent
+		}
+	} else if settlementContractAddress == nil ||
+		!settlementContractAddressPattern.MatchString(*settlementContractAddress) {
 		return Agent{}, ErrInvalidAgent
 	}
 
@@ -123,11 +155,78 @@ func validateAgentRegistration(input RegisterAgentInput, now time.Time) (Agent, 
 	if len(capabilities) == 0 || len(capabilities) > maxCapabilities {
 		return Agent{}, ErrInvalidAgent
 	}
+	if !isValidAgentSchema(input.InputSchema) || !isValidOutputContract(input.OutputTypes, input.OutputSchema) {
+		return Agent{}, ErrInvalidAgent
+	}
 
 	return Agent{
-		Capabilities: capabilities, CreatedAt: now, Description: description,
-		EndpointURL: endpointURL, ID: id, Name: name, Status: "active", UpdatedAt: now,
+		AuthorBio: authorBio, AutoAcceptJobs: input.AutoAcceptJobs,
+		Capabilities: capabilities, Classification: classification, CreatedAt: now, Description: description,
+		EndpointURL: endpointURL, ID: id, InputSchema: input.InputSchema, Name: name,
+		IsFree: input.IsFree, OutputSchema: input.OutputSchema, OutputTypes: input.OutputTypes,
+		SettlementContractAddress: settlementContractAddress,
+		Status:                    "active", UpdatedAt: now,
 	}, nil
+}
+
+func isValidAgentSchema(schema AgentSchema) bool {
+	if schema.Type != "object" || schema.AdditionalProperties || len(schema.Properties) == 0 ||
+		len(schema.Properties) > maxSchemaProperties {
+		return false
+	}
+
+	requiredProperties := make(map[string]struct{}, len(schema.Required))
+	for _, propertyName := range schema.Required {
+		if _, exists := schema.Properties[propertyName]; !exists {
+			return false
+		}
+		if _, duplicate := requiredProperties[propertyName]; duplicate {
+			return false
+		}
+		requiredProperties[propertyName] = struct{}{}
+	}
+
+	for propertyName, property := range schema.Properties {
+		if !schemaPropertyNamePattern.MatchString(propertyName) ||
+			utf8.RuneCountInString(strings.TrimSpace(property.Description)) == 0 ||
+			utf8.RuneCountInString(property.Description) > 200 {
+			return false
+		}
+		switch property.Type {
+		case "string":
+			if property.Format != "" && property.Format != "uri" {
+				return false
+			}
+		case "number", "boolean":
+			if property.Format != "" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isValidOutputContract(outputTypes []string, outputSchema *AgentSchema) bool {
+	if len(outputTypes) == 0 || len(outputTypes) > 3 {
+		return false
+	}
+	seenOutputTypes := make(map[string]struct{}, len(outputTypes))
+	for _, outputType := range outputTypes {
+		if outputType != "text" && outputType != "image" && outputType != "json" {
+			return false
+		}
+		if _, duplicate := seenOutputTypes[outputType]; duplicate {
+			return false
+		}
+		seenOutputTypes[outputType] = struct{}{}
+	}
+	_, hasStructuredOutput := seenOutputTypes["json"]
+	if hasStructuredOutput {
+		return outputSchema != nil && isValidAgentSchema(*outputSchema)
+	}
+	return outputSchema == nil
 }
 
 func (service *Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {

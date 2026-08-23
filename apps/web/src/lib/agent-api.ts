@@ -3,13 +3,41 @@ import { z } from "zod";
 
 const apiBaseUrl = env.VITE_SERVER_URL.replace(/\/$/, "");
 
+const agentSchemaPropertySchema = z.object({
+	description: z.string(),
+	format: z.literal("uri").optional(),
+	type: z.enum(["string", "number", "boolean"]),
+});
+
+const agentContractSchema = z.object({
+	additionalProperties: z.literal(false),
+	properties: z.record(z.string(), agentSchemaPropertySchema),
+	required: z.array(z.string()),
+	type: z.literal("object"),
+});
+
 const agentSchema = z.object({
+	authorBio: z.string(),
+	autoAcceptJobs: z.boolean(),
 	capabilities: z.array(z.string()),
+	classification: z.enum([
+		"general",
+		"content",
+		"research",
+		"development",
+		"data",
+		"automation",
+	]),
 	createdAt: z.string(),
 	description: z.string(),
 	embeddingModel: z.string().optional(),
 	id: z.string(),
+	inputSchema: agentContractSchema,
+	isFree: z.boolean(),
 	name: z.string(),
+	outputSchema: agentContractSchema.optional(),
+	outputTypes: z.array(z.enum(["text", "image", "json"])),
+	settlementContractAddress: z.string().optional(),
 	status: z.string(),
 	updatedAt: z.string(),
 	vectorIndexed: z.boolean().default(false),
@@ -77,13 +105,24 @@ export type AgentExecution = z.infer<typeof executionSchema>;
 export type AgentTask = z.infer<typeof taskSchema>;
 export type AgentWorkflow = z.infer<typeof workflowSchema>;
 export type AgentWorkflowStep = z.infer<typeof workflowStepSchema>;
+export type AgentContract = z.infer<typeof agentContractSchema>;
+export type AgentOutputType = Agent["outputTypes"][number];
+export type AgentClassification = Agent["classification"];
 
 export interface RegisterAgentInput {
+	authorBio: string;
+	autoAcceptJobs: boolean;
 	capabilities: string[];
+	classification: AgentClassification;
 	description: string;
 	endpointUrl: string;
 	id: string;
+	inputSchema: AgentContract;
+	isFree: boolean;
 	name: string;
+	outputSchema?: AgentContract;
+	outputTypes: AgentOutputType[];
+	settlementContractAddress?: string;
 }
 
 const request = async <Schema extends z.ZodType>(

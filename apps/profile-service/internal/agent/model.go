@@ -3,16 +3,24 @@ package agent
 import "time"
 
 type Agent struct {
-	Capabilities   []string  `json:"capabilities"`
-	CreatedAt      time.Time `json:"createdAt"`
-	Description    string    `json:"description"`
-	EmbeddingModel *string   `json:"embeddingModel,omitempty"`
-	EndpointURL    string    `json:"-"`
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Status         string    `json:"status"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	VectorIndexed  bool      `json:"vectorIndexed"`
+	AuthorBio                 string       `json:"authorBio"`
+	AutoAcceptJobs            bool         `json:"autoAcceptJobs"`
+	Capabilities              []string     `json:"capabilities"`
+	Classification            string       `json:"classification"`
+	CreatedAt                 time.Time    `json:"createdAt"`
+	Description               string       `json:"description"`
+	EmbeddingModel            *string      `json:"embeddingModel,omitempty"`
+	EndpointURL               string       `json:"-"`
+	ID                        string       `json:"id"`
+	InputSchema               AgentSchema  `json:"inputSchema"`
+	IsFree                    bool         `json:"isFree"`
+	Name                      string       `json:"name"`
+	OutputSchema              *AgentSchema `json:"outputSchema,omitempty"`
+	OutputTypes               []string     `json:"outputTypes"`
+	SettlementContractAddress *string      `json:"settlementContractAddress,omitempty"`
+	Status                    string       `json:"status"`
+	UpdatedAt                 time.Time    `json:"updatedAt"`
+	VectorIndexed             bool         `json:"vectorIndexed"`
 }
 
 type CreateTaskInput struct {
@@ -21,11 +29,32 @@ type CreateTaskInput struct {
 }
 
 type RegisterAgentInput struct {
-	Capabilities []string `json:"capabilities"`
-	Description  string   `json:"description"`
-	EndpointURL  string   `json:"endpointUrl"`
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
+	AuthorBio                 string       `json:"authorBio"`
+	AutoAcceptJobs            bool         `json:"autoAcceptJobs"`
+	Capabilities              []string     `json:"capabilities"`
+	Classification            string       `json:"classification"`
+	Description               string       `json:"description"`
+	EndpointURL               string       `json:"endpointUrl"`
+	ID                        string       `json:"id"`
+	InputSchema               AgentSchema  `json:"inputSchema"`
+	IsFree                    bool         `json:"isFree"`
+	Name                      string       `json:"name"`
+	OutputSchema              *AgentSchema `json:"outputSchema,omitempty"`
+	OutputTypes               []string     `json:"outputTypes"`
+	SettlementContractAddress *string      `json:"settlementContractAddress,omitempty"`
+}
+
+type AgentSchema struct {
+	AdditionalProperties bool                           `json:"additionalProperties"`
+	Properties           map[string]AgentSchemaProperty `json:"properties"`
+	Required             []string                       `json:"required"`
+	Type                 string                         `json:"type"`
+}
+
+type AgentSchemaProperty struct {
+	Description string `json:"description"`
+	Format      string `json:"format,omitempty"`
+	Type        string `json:"type"`
 }
 
 type CreateWorkflowPreviewInput struct {

@@ -121,8 +121,9 @@ func (matcher *VectorRerankMatcher) syncAgentEmbeddings(ctx context.Context, age
 
 func buildAgentSourceText(selectedAgent Agent) string {
 	return fmt.Sprintf(
-		"Agent: %s\nDescription: %s\nCapabilities: %s",
+		"Agent: %s\nClassification: %s\nDescription: %s\nCapabilities: %s",
 		selectedAgent.Name,
+		selectedAgent.Classification,
 		selectedAgent.Description,
 		strings.Join(selectedAgent.Capabilities, ", "),
 	)

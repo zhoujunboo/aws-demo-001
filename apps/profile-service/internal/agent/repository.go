@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -35,6 +36,17 @@ func (repository *PostgresRepository) CreateAgentWithEmbedding(
 	registeredAgent Agent,
 	embedding AgentEmbedding,
 ) error {
+	inputSchema, err := json.Marshal(registeredAgent.InputSchema)
+	if err != nil {
+		return fmt.Errorf("encode agent input schema: %w", err)
+	}
+	var outputSchema []byte
+	if registeredAgent.OutputSchema != nil {
+		outputSchema, err = json.Marshal(registeredAgent.OutputSchema)
+		if err != nil {
+			return fmt.Errorf("encode agent output schema: %w", err)
+		}
+	}
 	vector, err := vectorLiteral(embedding.Embedding)
 	if err != nil {
 		return err
@@ -47,12 +59,17 @@ func (repository *PostgresRepository) CreateAgentWithEmbedding(
 
 	_, err = transaction.Exec(ctx, `
 		INSERT INTO agent (
-			capabilities, created_at, description, endpoint_url, id, name, status, updated_at
+			author_bio, auto_accept_jobs, capabilities, classification, created_at,
+			description, endpoint_url, id, input_schema, is_free, name, output_schema,
+			output_types, settlement_contract_address, status, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, registeredAgent.Capabilities, registeredAgent.CreatedAt, registeredAgent.Description,
-		registeredAgent.EndpointURL, registeredAgent.ID, registeredAgent.Name,
-		registeredAgent.Status, registeredAgent.UpdatedAt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb,
+		        $13, $14, $15, $16)
+	`, registeredAgent.AuthorBio, registeredAgent.AutoAcceptJobs, registeredAgent.Capabilities,
+		registeredAgent.Classification, registeredAgent.CreatedAt, registeredAgent.Description,
+		registeredAgent.EndpointURL, registeredAgent.ID, inputSchema, registeredAgent.IsFree,
+		registeredAgent.Name, outputSchema, registeredAgent.OutputTypes,
+		registeredAgent.SettlementContractAddress, registeredAgent.Status, registeredAgent.UpdatedAt)
 	if err != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
@@ -87,9 +104,11 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 
 func (repository *PostgresRepository) ListAgents(ctx context.Context) ([]Agent, error) {
 	rows, err := repository.pool.Query(ctx, `
-		SELECT agent.capabilities, agent.created_at, agent.description,
+		SELECT agent.author_bio, agent.auto_accept_jobs, agent.capabilities,
+		       agent.classification, agent.created_at, agent.description,
 		       agent_embedding.embedding_model, agent.endpoint_url, agent.id,
-		       agent.name, agent.status, agent.updated_at,
+		       agent.input_schema, agent.is_free, agent.name, agent.output_schema,
+		       agent.output_types, agent.settlement_contract_address, agent.status, agent.updated_at,
 		       agent_embedding.agent_id IS NOT NULL AS vector_indexed
 		FROM agent
 		LEFT JOIN agent_embedding ON agent_embedding.agent_id = agent.id
@@ -104,13 +123,21 @@ func (repository *PostgresRepository) ListAgents(ctx context.Context) ([]Agent, 
 	agents := make([]Agent, 0)
 	for rows.Next() {
 		var storedAgent Agent
+		var inputSchema []byte
+		var outputSchema []byte
 		if err := rows.Scan(
-			&storedAgent.Capabilities, &storedAgent.CreatedAt, &storedAgent.Description,
+			&storedAgent.AuthorBio, &storedAgent.AutoAcceptJobs, &storedAgent.Capabilities,
+			&storedAgent.Classification, &storedAgent.CreatedAt, &storedAgent.Description,
 			&storedAgent.EmbeddingModel, &storedAgent.EndpointURL, &storedAgent.ID,
-			&storedAgent.Name, &storedAgent.Status, &storedAgent.UpdatedAt,
+			&inputSchema, &storedAgent.IsFree, &storedAgent.Name, &outputSchema,
+			&storedAgent.OutputTypes, &storedAgent.SettlementContractAddress,
+			&storedAgent.Status, &storedAgent.UpdatedAt,
 			&storedAgent.VectorIndexed,
 		); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
+		}
+		if err := decodeAgentSchemas(&storedAgent, inputSchema, outputSchema); err != nil {
+			return nil, err
 		}
 		agents = append(agents, storedAgent)
 	}
@@ -194,12 +221,15 @@ func (repository *PostgresRepository) SearchAgentsByEmbedding(
 		return nil, err
 	}
 	rows, err := repository.pool.Query(ctx, `
-		SELECT agent.capabilities, agent.created_at, agent.description, agent.endpoint_url,
-		       agent.id, agent.name, agent.status, agent.updated_at,
+		SELECT agent.author_bio, agent.auto_accept_jobs, agent.capabilities,
+		       agent.classification, agent.created_at, agent.description, agent.endpoint_url,
+		       agent.id, agent.input_schema, agent.is_free, agent.name, agent.output_schema,
+		       agent.output_types, agent.settlement_contract_address, agent.status, agent.updated_at,
 		       1 - (agent_embedding.embedding <=> $1::vector) AS similarity
 		FROM agent_embedding
 		JOIN agent ON agent.id = agent_embedding.agent_id
 		WHERE agent.status = 'active'
+		  AND agent.auto_accept_jobs = true
 		  AND agent_embedding.embedding_model = $2
 		  AND vector_dims(agent_embedding.embedding) = vector_dims($1::vector)
 		ORDER BY agent_embedding.embedding <=> $1::vector, agent.id
@@ -213,13 +243,21 @@ func (repository *PostgresRepository) SearchAgentsByEmbedding(
 	candidates := make([]VectorCandidate, 0, limit)
 	for rows.Next() {
 		var candidate VectorCandidate
+		var inputSchema []byte
+		var outputSchema []byte
 		if err := rows.Scan(
-			&candidate.Agent.Capabilities, &candidate.Agent.CreatedAt,
+			&candidate.Agent.AuthorBio, &candidate.Agent.AutoAcceptJobs,
+			&candidate.Agent.Capabilities, &candidate.Agent.Classification, &candidate.Agent.CreatedAt,
 			&candidate.Agent.Description, &candidate.Agent.EndpointURL,
-			&candidate.Agent.ID, &candidate.Agent.Name, &candidate.Agent.Status,
+			&candidate.Agent.ID, &inputSchema, &candidate.Agent.IsFree, &candidate.Agent.Name,
+			&outputSchema, &candidate.Agent.OutputTypes, &candidate.Agent.SettlementContractAddress,
+			&candidate.Agent.Status,
 			&candidate.Agent.UpdatedAt, &candidate.Similarity,
 		); err != nil {
 			return nil, fmt.Errorf("scan vector candidate: %w", err)
+		}
+		if err := decodeAgentSchemas(&candidate.Agent, inputSchema, outputSchema); err != nil {
+			return nil, err
 		}
 		candidates = append(candidates, candidate)
 	}
@@ -227,6 +265,19 @@ func (repository *PostgresRepository) SearchAgentsByEmbedding(
 		return nil, fmt.Errorf("iterate vector candidates: %w", err)
 	}
 	return candidates, nil
+}
+
+func decodeAgentSchemas(storedAgent *Agent, inputSchema, outputSchema []byte) error {
+	if err := json.Unmarshal(inputSchema, &storedAgent.InputSchema); err != nil {
+		return fmt.Errorf("decode agent input schema: %w", err)
+	}
+	if len(outputSchema) > 0 {
+		storedAgent.OutputSchema = &AgentSchema{}
+		if err := json.Unmarshal(outputSchema, storedAgent.OutputSchema); err != nil {
+			return fmt.Errorf("decode agent output schema: %w", err)
+		}
+	}
+	return nil
 }
 
 func vectorLiteral(values []float64) (string, error) {
