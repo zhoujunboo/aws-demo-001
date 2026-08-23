@@ -68,7 +68,15 @@ func (repository *PostgresRepository) CreateWorkflow(
 			INSERT INTO agent_dispatch_stat (
 				agent_id, eligible_count, last_selected_at, selected_count
 			)
-			VALUES ($1, $2, CASE WHEN $3 > 0 THEN $4 ELSE NULL END, $3)
+			VALUES (
+				$1,
+				$2,
+				CASE
+					WHEN $3 > 0 THEN $4::timestamptz
+					ELSE NULL::timestamptz
+				END,
+				$3
+			)
 			ON CONFLICT (agent_id) DO UPDATE SET
 				eligible_count = agent_dispatch_stat.eligible_count + EXCLUDED.eligible_count,
 				last_selected_at = CASE
