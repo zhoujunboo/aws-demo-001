@@ -1076,7 +1076,6 @@ Resources:
       Handler: agent-workflow-worker.handler
       Policies:
         - AWSLambdaVPCAccessExecutionRole
-      ReservedConcurrentExecutions: 5
       Timeout: 300
       VpcConfig:
         SecurityGroupIds:
